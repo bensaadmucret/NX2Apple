@@ -16,7 +16,6 @@ split now writes 9,344; the keys seen missing at startup are covered.
 Upstream-Status: forwarded seedds/nxnative#2694
 Reason: The Witcher 3 keeps its precompiled NVN shaders in REDengine caches the split did not read
 Issue: LNPANDY/NX2Apple#1318
-
 ---
  dm/gfx/tools/shader_split.py      |  43 ++++++++++++
  dm/tools/tests/test_split_rdhs.py | 112 ++++++++++++++++++++++++++++++
@@ -25,10 +24,10 @@ Issue: LNPANDY/NX2Apple#1318
  create mode 100644 dm/tools/tests/test_split_rdhs.py
 
 diff --git a/dm/gfx/tools/shader_split.py b/dm/gfx/tools/shader_split.py
-index 21bd03a..ead11c1 100644
+index fce43ddb..c326eec0 100644
 --- a/dm/gfx/tools/shader_split.py
 +++ b/dm/gfx/tools/shader_split.py
-@@ -39,6 +39,8 @@
+@@ -41,6 +41,8 @@
  #   · SNVN (Retro Studios, Donkey Kong Country: Tropical Freeze, Metroid Prime Remastered): zlib program records in the SNVN chunks of MaterialArchive.arc, of the MTRL resources in its
  #       .pak archives and of the startup material archive LZSS-compressed in main, see rfrm_shaders and retro_main_forms
  #   · BERG (Snowdrop, Mario + Rabbids Sparks of Hope): shader objects in the individually zstd-compressed records of its SDF data slices, see snowdrop_shaders
@@ -37,7 +36,7 @@ index 21bd03a..ead11c1 100644
  #   · bnd2 (Criterion's Bundle 2, Need for Speed: Hot Pursuit Remastered): whole GLSLC outputs in the zlib resources of SHADERS.BNDL, see bnd2_resources and bnd2_shaders
  #   · Heaps (Dead Cells): whole GLSLC outputs in base64 after the GLSL of the engine's shader cache (shaders.cache.nx), inside its PAK archive, see heaps_pak_files and heaps_shaders
  #   · Frostbite (EA SPORTS FC 27): the CompiledBytecode resources of the bundles its superbundle tables (.toc) list, in its cas files (Oodle Leviathan, decoded by the game's own decoder in the
-@@ -1907,6 +1909,43 @@ def nvn_loose(d, label):
+@@ -2275,6 +2277,43 @@ def nvn_loose(d, label):
      if st is None or check(label, st, ctl, code): return []
      return [(f'{label}#NVN@{0:#x}', st, ctl, code)]
  
@@ -81,7 +80,7 @@ index 21bd03a..ead11c1 100644
  def phyre_shaders(d, label):
      """Phyre's NVN code immediately precedes its control section, unaligned in RYHP effects; loose blobs also prefix their two lengths (FFX/X-2)."""
      out = []
-@@ -3022,6 +3061,9 @@ def scan_file_in(args):
+@@ -3449,6 +3488,9 @@ def scan_file_in(args):
      if head[:4] == b'BERG':   # Snowdrop's SDF data slices: shader objects in individual compressed records
          with open(path, 'rb') as f: found += snowdrop_shaders(f.read(), '/' + rel)
          return rel, uniq_keys(found), var_pairs(found), trees
@@ -91,17 +90,17 @@ index 21bd03a..ead11c1 100644
      if head[:4] == MTARC:   # an MT Framework archive (mtarc_members): its shader package
          mtarc_shaders(open(path, 'rb').read(), '/' + rel, found)
          return rel, uniq_keys(found), var_pairs(found), trees
-@@ -3069,6 +3111,7 @@ def scan_file_in(args):
+@@ -3499,6 +3541,7 @@ def scan_file_in(args):
          except unityfs.NoTree: return rel, {}, set(), 'defer'
          return rel, uniq_keys(found), var_pairs(found) | {(a, b, 'prog') for a, b in pairs}, trees
      elif loose := nvn_loose(d, '/' + rel): found += loose
 +    elif d[-8:-4] == b'RDHS': found += rdhs_shaders(d, '/' + rel)   # REDengine's shader cache (The Witcher 3's shadernx.cache): no head magic, the GLSLC outputs in its zstd records (rdhs_shaders)
-     elif b'BNSH\0\0\0\0' not in d and b'BAHS' not in d and d[:4] != b'MSHD' and d[:4] != b'NDSR' and d[:4] != b'NARC' and d[:4] != b'NDVE' and not (d[:4] == b'SARC' and b'Yaz0' in d) and b'\x91\x68\x86\x19' not in d and MGFX not in d and NEEDLE not in d and d[:8] != SUMO_MUX and SUMO_NX not in d and NVNSH not in d: return rel, {}, set(), {}   # a SARC may hold Yaz0 members, a NARC packed ones (cra.undo)
+     elif b'BNSH\0\0\0\0' not in d and b'BAHS' not in d and d[:4] != b'MSHD' and d[:4] != b'NDSR' and d[:4] != b'NARC' and d[:4] != b'NDVE' and not (d[:4] == b'SARC' and b'Yaz0' in d) and b'\x91\x68\x86\x19' not in d and MGFX not in d and NEEDLE not in d and d[:8] != PACX4 and d[:8] != SUMO_MUX and SUMO_NX not in d and NVNSH not in d: return rel, {}, set(), {}   # a SARC may hold Yaz0 members, a NARC packed ones (cra.undo)
      else:
          scan_blob(d, '/' + rel, found)
 diff --git a/dm/tools/tests/test_split_rdhs.py b/dm/tools/tests/test_split_rdhs.py
 new file mode 100644
-index 0000000..164aa31
+index 00000000..164aa317
 --- /dev/null
 +++ b/dm/tools/tests/test_split_rdhs.py
 @@ -0,0 +1,112 @@
@@ -218,10 +217,10 @@ index 0000000..164aa31
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/docs/reference/shaders.md b/docs/reference/shaders.md
-index 4ed185f..84a4626 100644
+index 5b6608a7..e014a5ef 100644
 --- a/docs/reference/shaders.md
 +++ b/docs/reference/shaders.md
-@@ -266,6 +266,15 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
+@@ -302,6 +302,15 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
  - **DLC:** additional shader records ship in the DLC's data slices. The NSP script includes each extracted DLC RomFS as an extra shader root, without an ExeFS module, and fingerprints its index and extraction timestamps for split reuse. Vulkan and OpenGL builds include the DLC roots too. When installing or removing optional DLC changes an NVN shader union, the script uses an external profile with new shader tables only after every non-DLC shader row and fact matches the registered tables; package indices may change. The registered module builds, settings and build-gated cuts are preserved. A cached proof of this comparison permits repeat builds to reuse the split.
  - **Found on:** [Mario + Rabbids Sparks of Hope](../../dm/games/0100317013770000/README.md) (zstd); [Mario + Rabbids Kingdom Battle](../../dm/games/010067300059A000/README.md) (zlib records, some wrapped in zstd chunks; shorter control sections and headerless compute code).
  

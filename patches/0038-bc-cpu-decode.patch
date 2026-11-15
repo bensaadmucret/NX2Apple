@@ -39,7 +39,7 @@ Issue: LNPANDY/NX2Apple#180
  create mode 100644 dm/third_party/bcdec/bcdec.h
 
 diff --git a/dm/games/010015100B514000/README.md b/dm/games/010015100B514000/README.md
-index f9402d8..3655f49 100644
+index f9402d8f..3655f49c 100644
 --- a/dm/games/010015100B514000/README.md
 +++ b/dm/games/010015100B514000/README.md
 @@ -101,6 +101,7 @@ Game-specific findings; the general host changes they led to are listed under [F
@@ -59,7 +59,7 @@ index f9402d8..3655f49 100644
 +
 +With the fork's CPU BC option enabled, an iPhone 13 Pro Max on iOS 27.0.1 showed striped rectangles in version 1.0.0 character selection, followed by an invalid decoded-texture view abort. The equivalent upload and view fix restored that screen in a historical local build. See [CPU-decoded BC uploads and format views](../../../docs/reference/rendering.md#cpu-decoded-bc-uploads-and-format-views) for the mechanism, regression coverage and limits. Current-pin verification is through synthetic GPU tests, not a new full-game phone run.
 diff --git a/dm/games/0100F2C0115B6000/game.tsv b/dm/games/0100F2C0115B6000/game.tsv
-index 742aba2..7a9cbdd 100644
+index 742aba2e..7a9cbddc 100644
 --- a/dm/games/0100F2C0115B6000/game.tsv
 +++ b/dm/games/0100F2C0115B6000/game.tsv
 @@ -41,6 +41,9 @@ app_pool	0xCD500000
@@ -73,7 +73,7 @@ index 742aba2..7a9cbdd 100644
  # 60 fps (30 on the Switch): the host decides each frame's step in whole vsyncs and holds the frame that long (rewriter stubs at FPSLocker's sites, patches.py FRAME_STEP);
  # 30 when 60 does not hold, game time = real time. DM_FPS_TARGET=30 (Documents/env.txt on the iPhone) saves power, 0 = the game's own step. Until the host has decided a step
 diff --git a/dm/games/game.py b/dm/games/game.py
-index 612a5a9..267585a 100644
+index 612a5a9b..267585af 100644
 --- a/dm/games/game.py
 +++ b/dm/games/game.py
 @@ -198,6 +198,8 @@ def header_one(g):
@@ -94,7 +94,7 @@ index 612a5a9..267585a 100644
           f'#define DM_GAME_DRAW_BARRIERS_GAME {int(dbr == "game")}',
           f'#define DM_GAME_UPSCALER_KEYS {q(",".join(ups))}', f'#define DM_GAME_UPSCALER_N {len(ups)}',
 diff --git a/dm/games/settings.tsv b/dm/games/settings.tsv
-index bed9160..141b0d8 100644
+index bed9160b..141b0d86 100644
 --- a/dm/games/settings.tsv
 +++ b/dm/games/settings.tsv
 @@ -37,5 +37,6 @@ DM_PSO_MTL4	toggle	-	DM_GAME_PSO_MTL4|1	gfxapi:nvn	Performance	Metal 4 pipelines
@@ -105,7 +105,7 @@ index bed9160..141b0d8 100644
  DM_FPS_HOLD	toggle	on/off	DM_GAME_FPS_HOLD	DM_GAME_FPS_TARGET!=0	Performance	Hold frames when late
  DM_METAL_HUD	toggle	-	0	always	Performance	Performance HUD
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 1f4f129..c80479f 100644
+index 1f4f129d..c80479f7 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
 @@ -23,6 +23,7 @@
@@ -317,7 +317,7 @@ index 1f4f129..c80479f 100644
          if (tex_need_pfv(t.pixelFormat, (MTLPixelFormat)vpf)) {
              id<MTLTexture> v = [t newTextureViewWithPixelFormat:(MTLPixelFormat)vpf];
 diff --git a/dm/gfx/tests/Makefile b/dm/gfx/tests/Makefile
-index 1ec56e1..1bac186 100644
+index 1ec56e1a..1bac1865 100644
 --- a/dm/gfx/tests/Makefile
 +++ b/dm/gfx/tests/Makefile
 @@ -735,3 +735,7 @@ check_t_sparse_pool_cache: RUN_ENV = MTL_DEBUG_LAYER=1
@@ -330,7 +330,7 @@ index 1ec56e1..1bac186 100644
 +check_t_bc_cpu: RUN_ENV = MTL_DEBUG_LAYER=1
 diff --git a/dm/gfx/tests/t_bc_cpu.m b/dm/gfx/tests/t_bc_cpu.m
 new file mode 100644
-index 0000000..b395b55
+index 00000000..b395b557
 --- /dev/null
 +++ b/dm/gfx/tests/t_bc_cpu.m
 @@ -0,0 +1,90 @@
@@ -425,7 +425,7 @@ index 0000000..b395b55
 +    printf("t_bc_cpu: %d checks, %d failed\n",checks,failed); return failed!=0;
 +}}
 diff --git a/dm/gfx/tex/README.md b/dm/gfx/tex/README.md
-index 1968759..5ce8669 100644
+index 1968759d..5ce86696 100644
 --- a/dm/gfx/tex/README.md
 +++ b/dm/gfx/tex/README.md
 @@ -21,7 +21,7 @@ The offsets of each level and layer within the storage, and the block height and
@@ -439,7 +439,7 @@ index 1968759..5ce8669 100644
  
 diff --git a/dm/gfx/tex/nvn_bcdec.c b/dm/gfx/tex/nvn_bcdec.c
 new file mode 100644
-index 0000000..00ebd5e
+index 00000000..00ebd5e5
 --- /dev/null
 +++ b/dm/gfx/tex/nvn_bcdec.c
 @@ -0,0 +1,88 @@
@@ -533,7 +533,7 @@ index 0000000..00ebd5e
 +}
 diff --git a/dm/gfx/tex/nvn_bcdec.h b/dm/gfx/tex/nvn_bcdec.h
 new file mode 100644
-index 0000000..ac82a27
+index 00000000..ac82a275
 --- /dev/null
 +++ b/dm/gfx/tex/nvn_bcdec.h
 @@ -0,0 +1,21 @@
@@ -559,7 +559,7 @@ index 0000000..ac82a27
 +// One RGB triple packed as RGB9E5 (the shared-exponent format of Metal's RGB9E5Float): negative, NaN and out-of-range inputs clamp.
 +uint32_t nvn_rgb9e5_pack(float r, float g, float b);
 diff --git a/dm/gfx/tex/tests/.gitignore b/dm/gfx/tex/tests/.gitignore
-index ad72cd1..15d594e 100644
+index ad72cd17..15d594ea 100644
 --- a/dm/gfx/tex/tests/.gitignore
 +++ b/dm/gfx/tex/tests/.gitignore
 @@ -1,4 +1,5 @@
@@ -569,7 +569,7 @@ index ad72cd1..15d594e 100644
  *.dSYM
  asan/
 diff --git a/dm/gfx/tex/tests/Makefile b/dm/gfx/tex/tests/Makefile
-index feed9f8..af5f698 100644
+index feed9f8e..af5f698f 100644
 --- a/dm/gfx/tex/tests/Makefile
 +++ b/dm/gfx/tex/tests/Makefile
 @@ -6,24 +6,28 @@ O ?=
@@ -609,7 +609,7 @@ index feed9f8..af5f698 100644
  	@$(call cov_export,cov)
 diff --git a/dm/gfx/tex/tests/t_bcdec.c b/dm/gfx/tex/tests/t_bcdec.c
 new file mode 100644
-index 0000000..5a40608
+index 00000000..5a406084
 --- /dev/null
 +++ b/dm/gfx/tex/tests/t_bcdec.c
 @@ -0,0 +1,202 @@
@@ -816,7 +816,7 @@ index 0000000..5a40608
 +    return 0;
 +}
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
-index f41603b..a16b19c 100644
+index f41603b9..a16b19c1 100644
 --- a/dm/ios/Sources/main.m
 +++ b/dm/ios/Sources/main.m
 @@ -9,6 +9,7 @@
@@ -838,7 +838,7 @@ index f41603b..a16b19c 100644
      fprintf(stderr, "[RED] boot: %s\n", msg);
 diff --git a/dm/third_party/bcdec/LICENSE b/dm/third_party/bcdec/LICENSE
 new file mode 100644
-index 0000000..78e53f1
+index 00000000..78e53f19
 --- /dev/null
 +++ b/dm/third_party/bcdec/LICENSE
 @@ -0,0 +1,52 @@
@@ -896,7 +896,7 @@ index 0000000..78e53f1
 +For more information, please refer to <https://unlicense.org>
 diff --git a/dm/third_party/bcdec/README.md b/dm/third_party/bcdec/README.md
 new file mode 100644
-index 0000000..baf2d24
+index 00000000..baf2d240
 --- /dev/null
 +++ b/dm/third_party/bcdec/README.md
 @@ -0,0 +1,2 @@
@@ -904,7 +904,7 @@ index 0000000..baf2d24
 +用途：不支持 BC 压缩格式的显卡上，翻译层把 BC 贴图在 CPU 上解压（dm/gfx/tex/nvn_bcdec.c）。
 diff --git a/dm/third_party/bcdec/bcdec.h b/dm/third_party/bcdec/bcdec.h
 new file mode 100644
-index 0000000..553c3ec
+index 00000000..553c3ec5
 --- /dev/null
 +++ b/dm/third_party/bcdec/bcdec.h
 @@ -0,0 +1,1512 @@
@@ -2421,7 +2421,7 @@ index 0000000..553c3ec
 +
 +*/
 diff --git a/dm/tools/docs_patches.py b/dm/tools/docs_patches.py
-index f92c604..c7e4850 100644
+index f92c6048..c7e4850a 100644
 --- a/dm/tools/docs_patches.py
 +++ b/dm/tools/docs_patches.py
 @@ -140,6 +140,8 @@ SWITCH_BINDING = [
@@ -2434,7 +2434,7 @@ index f92c604..c7e4850 100644
  
  
 diff --git a/dm/tools/tests/test_launcher_settings.py b/dm/tools/tests/test_launcher_settings.py
-index de17ca7..9a48a50 100644
+index de17ca7d..9a48a505 100644
 --- a/dm/tools/tests/test_launcher_settings.py
 +++ b/dm/tools/tests/test_launcher_settings.py
 @@ -84,6 +84,14 @@ class LauncherSettingsTests(unittest.TestCase):
@@ -2453,7 +2453,7 @@ index de17ca7..9a48a50 100644
          s = build(BOTW, 'nvn')['DM_FPS_HOLD']
          self.assertEqual((s['on'], s['off'], s['default']), ('on', 'off', 'on'))
 diff --git a/docs/reference/rendering.md b/docs/reference/rendering.md
-index c8ac2dc..a8a5921 100644
+index c8ac2dc4..a8a59211 100644
 --- a/docs/reference/rendering.md
 +++ b/docs/reference/rendering.md
 @@ -2011,3 +2011,12 @@ Digimon Story Cyber Sleuth: Complete Edition (Media.Vision's MVGL engine, SDK 6.
@@ -2470,7 +2470,7 @@ index c8ac2dc..a8a5921 100644
 +- **Limits:** this does not implement raw compressed-block views, GPU BC block encoding, or decoded-to-compressed readback. It keeps the existing compatibility opt-in and does not change the supported-device check.
 +- **Found on:** [Super Mario Bros. Wonder](../../dm/games/010015100B514000/README.md).
 diff --git a/docs/settings.md b/docs/settings.md
-index 195b118..44a6fe9 100644
+index 195b1189..44a6fe9e 100644
 --- a/docs/settings.md
 +++ b/docs/settings.md
 @@ -5,7 +5,7 @@ The screen before the game starts shows the settings the game supports. A settin

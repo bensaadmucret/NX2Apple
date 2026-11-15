@@ -27,7 +27,6 @@ Found on Vengeance Hunters (01008EF020C98000), no profile yet.
 Upstream-Status: forwarded seedds/nxnative#2669
 Reason: Vengeance Hunters' eight shaders are loose .nvn program files (16-byte header + control section + code area) that no reader knew; the split found no shaders and the build stopped
 Issue: LNPANDY/NX2Apple#1309
-
 ---
  dm/gfx/tools/shader_split.py     | 14 +++++++-
  dm/tools/tests/test_split_nvn.py | 57 ++++++++++++++++++++++++++++++++
@@ -36,10 +35,10 @@ Issue: LNPANDY/NX2Apple#1309
  create mode 100644 dm/tools/tests/test_split_nvn.py
 
 diff --git a/dm/gfx/tools/shader_split.py b/dm/gfx/tools/shader_split.py
-index 4a5477a..21bd03a 100644
+index 4b4cc759..fce43ddb 100644
 --- a/dm/gfx/tools/shader_split.py
 +++ b/dm/gfx/tools/shader_split.py
-@@ -1896,6 +1896,17 @@ def sumo_shaders(d, label):
+@@ -2264,6 +2264,17 @@ def sumo_shaders(d, label):
          out.append(sumo_program(d, h, size, co, ko, cn, kn, f'{label}#NVNSH@{h:#x}', STAGES[stage]))
      return out
  
@@ -57,26 +56,26 @@ index 4a5477a..21bd03a 100644
  def phyre_shaders(d, label):
      """Phyre's NVN code immediately precedes its control section, unaligned in RYHP effects; loose blobs also prefix their two lengths (FFX/X-2)."""
      out = []
-@@ -2787,7 +2798,7 @@ def pixel_input_cover(shaders):
+@@ -3189,7 +3200,7 @@ def pixel_input_cover(shaders):
          k = min(ins, key=lambda k: (-len(ins[k] & left), k)); cover.append(k); left -= ins[k]
      return cover
  
--SINGLE_STAGE = ('#GLSLC@', '#VIPER', '#UE', '#MTSPK@', '#MGFX@', '#NLG', '#PGSO', '#RAW@', '#TFXO@', '#NEEDLE@', '#SNOWDROP@', '#PHYRE@', '#SUMO@', '#NVNSH@')   # sources whose every shader is a program of one stage: GLSLC outputs, Unreal's shader records, MT Framework's shader package (BNSH variations, Unity programs, MSHD and SDF pair theirs);
-+SINGLE_STAGE = ('#GLSLC@', '#VIPER', '#UE', '#MTSPK@', '#MGFX@', '#NLG', '#PGSO', '#RAW@', '#TFXO@', '#NEEDLE@', '#SNOWDROP@', '#PHYRE@', '#SUMO@', '#NVNSH@', '#NVN@')   # sources whose every shader is a program of one stage: GLSLC outputs, Unreal's shader records, MT Framework's shader package (BNSH variations, Unity programs, MSHD and SDF pair theirs);
+-SINGLE_STAGE = ('#GLSLC@', '#VIPER', '#UE', '#MTSPK@', '#MGFX@', '#NLG', '#PGSO', '#RAW@', '#TFXO@', '#NEEDLE@', '#SNOWDROP@', '#PHYRE@', '#SUMO@', '#NVNSH@', '#D3@', '#SHAD@')   # sources whose every shader is a program of one stage: GLSLC outputs, Unreal's shader records, MT Framework's shader package (BNSH variations, Unity programs, MSHD and SDF pair theirs);
++SINGLE_STAGE = ('#GLSLC@', '#VIPER', '#UE', '#MTSPK@', '#MGFX@', '#NLG', '#PGSO', '#RAW@', '#TFXO@', '#NEEDLE@', '#SNOWDROP@', '#PHYRE@', '#SUMO@', '#NVNSH@', '#D3@', '#SHAD@', '#NVN@')   # sources whose every shader is a program of one stage: GLSLC outputs, Unreal's shader records, MT Framework's shader package (BNSH variations, Unity programs, MSHD and SDF pair theirs);
  # Unreal Engine 3's shader caches (ue3_shaders, '#UE3@'); MonoGame's effects, whose passes may name no vertex shader and keep the one bound (Celeste: 10 of its 13 effects draw through SpriteBatch's vertex shader, which is in main); Next Level Games'
  # archives (Luigi's Mansion 3 makes 5,317 programs of one stage each at boot); PlatinumGames' shader objects (Bayonetta 3: one stage each, pg_shader); control sections loose in main
  # (Advance Wars 1+2: Re-Boot Camp's Bink shaders, raw_shaders), which no file pairs; YEBIS's effect file (tfxo_shaders); and Sumo's Ninty_NX descriptors and NVNsh records, one stage
-@@ -3057,6 +3068,7 @@ def scan_file_in(args):
+@@ -3487,6 +3498,7 @@ def scan_file_in(args):
          try: pairs = unity_shaders(d, '/' + rel, found, trees if not TREES else dict(TREES))
          except unityfs.NoTree: return rel, {}, set(), 'defer'
          return rel, uniq_keys(found), var_pairs(found) | {(a, b, 'prog') for a, b in pairs}, trees
 +    elif loose := nvn_loose(d, '/' + rel): found += loose
-     elif b'BNSH\0\0\0\0' not in d and b'BAHS' not in d and d[:4] != b'MSHD' and d[:4] != b'NDSR' and d[:4] != b'NARC' and d[:4] != b'NDVE' and not (d[:4] == b'SARC' and b'Yaz0' in d) and b'\x91\x68\x86\x19' not in d and MGFX not in d and NEEDLE not in d and d[:8] != SUMO_MUX and SUMO_NX not in d and NVNSH not in d: return rel, {}, set(), {}   # a SARC may hold Yaz0 members, a NARC packed ones (cra.undo)
+     elif b'BNSH\0\0\0\0' not in d and b'BAHS' not in d and d[:4] != b'MSHD' and d[:4] != b'NDSR' and d[:4] != b'NARC' and d[:4] != b'NDVE' and not (d[:4] == b'SARC' and b'Yaz0' in d) and b'\x91\x68\x86\x19' not in d and MGFX not in d and NEEDLE not in d and d[:8] != PACX4 and d[:8] != SUMO_MUX and SUMO_NX not in d and NVNSH not in d: return rel, {}, set(), {}   # a SARC may hold Yaz0 members, a NARC packed ones (cra.undo)
      else:
          scan_blob(d, '/' + rel, found)
 diff --git a/dm/tools/tests/test_split_nvn.py b/dm/tools/tests/test_split_nvn.py
 new file mode 100644
-index 0000000..eddcbfe
+index 00000000..eddcbfef
 --- /dev/null
 +++ b/dm/tools/tests/test_split_nvn.py
 @@ -0,0 +1,57 @@
@@ -138,12 +137,12 @@ index 0000000..eddcbfe
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/docs/reference/shaders.md b/docs/reference/shaders.md
-index 5f2aae9..4ed185f 100644
+index 397bfdd1..5b6608a7 100644
 --- a/docs/reference/shaders.md
 +++ b/docs/reference/shaders.md
-@@ -35,6 +35,14 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
- - **Found on:** [FINAL FANTASY X/X-2 HD Remaster](../../dm/games/0100BC300CB48000/README.md); base and both supplied DLC packs yield 5,752 unique shaders.
- - **Check:** `test_vbf.py` covers raw and zlib blocks, shared/missing members, truncation, unaligned effects, loose shader keys and inconsistent lengths. All 5,752 programs translate on the Mac.
+@@ -59,6 +59,14 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
+ - **Found on:** [Diablo II: Resurrected](../../dm/games/0100726014352000/README.md) 1.0.34.0: 6,931 shaders (2,344 vertex, 4,559 pixel, 26 compute, 1 hull, 1 domain) from 132,413 files in 12 s, against none before; all 38 programs the game asked for up to its title are among them.
+ - **Check:** `dm/tools/tests/test_split_casc.py`: shaders in `z`, `n` and BLTE files of a synthetic storage, another config key and a key naming another archive refused with a red line, a record whose lengths do not add up named, BLTE lengths checked, and main's records found through a relocation and an adrp + add while one nothing points at is named.
  
 +### Loose `.nvn` program files
 +

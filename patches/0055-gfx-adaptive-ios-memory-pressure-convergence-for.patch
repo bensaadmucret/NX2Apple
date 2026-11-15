@@ -7,7 +7,6 @@ Subject: [PATCH] gfx: adaptive iOS memory-pressure convergence for recycled
 Upstream-Status: pending
 Reason: Converge iOS DM_NVN_RT_RECYCLE placement heap pool caps under low memory and dispatch pressure while preserving macOS defaults
 Issue: none
-
 ---
  dm/gfx/nvn/nvn_mtl.m               | 142 ++++++++++++++++++++----
  dm/gfx/nvn/nvn_rt_recycle.h        |  59 ++++++++++
@@ -19,7 +18,7 @@ Issue: none
  create mode 100644 dm/gfx/tests/t_rt_recycle_policy.c
 
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index e07ce05..bdd1e27 100644
+index e07ce055..bdd1e27b 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
 @@ -36,6 +36,7 @@
@@ -238,7 +237,7 @@ index e07ce05..bdd1e27 100644
      pthread_mutex_lock(&g_res_mu);
 diff --git a/dm/gfx/nvn/nvn_rt_recycle.h b/dm/gfx/nvn/nvn_rt_recycle.h
 new file mode 100644
-index 0000000..c569dbd
+index 00000000..c569dbdf
 --- /dev/null
 +++ b/dm/gfx/nvn/nvn_rt_recycle.h
 @@ -0,0 +1,59 @@
@@ -302,7 +301,7 @@ index 0000000..c569dbd
 +
 +#endif
 diff --git a/dm/gfx/tests/Makefile b/dm/gfx/tests/Makefile
-index 1bac186..b739260 100644
+index 1bac1865..b7392602 100644
 --- a/dm/gfx/tests/Makefile
 +++ b/dm/gfx/tests/Makefile
 @@ -544,6 +544,8 @@ t_image_alias: t_image_alias.m $(MTL_T_DEP)
@@ -315,7 +314,7 @@ index 1bac186..b739260 100644
  	clang $(CFLAGS) -fobjc-arc -o $@ t_rt_recycle.m $(MTL_T_SRC) $(FW)
  .PHONY: check_t_rt_recycle
 diff --git a/dm/gfx/tests/t_rt_recycle.m b/dm/gfx/tests/t_rt_recycle.m
-index 4e627da..fc67a4c 100644
+index 4e627da5..fc67a4c8 100644
 --- a/dm/gfx/tests/t_rt_recycle.m
 +++ b/dm/gfx/tests/t_rt_recycle.m
 @@ -105,6 +105,93 @@ int main(void) { @autoreleasepool {
@@ -423,7 +422,7 @@ index 4e627da..fc67a4c 100644
  } }
 diff --git a/dm/gfx/tests/t_rt_recycle_policy.c b/dm/gfx/tests/t_rt_recycle_policy.c
 new file mode 100644
-index 0000000..29ea626
+index 00000000..29ea6264
 --- /dev/null
 +++ b/dm/gfx/tests/t_rt_recycle_policy.c
 @@ -0,0 +1,169 @@
