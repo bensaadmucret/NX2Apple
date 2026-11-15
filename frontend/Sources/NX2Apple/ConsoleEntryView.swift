@@ -1,25 +1,7 @@
 import SwiftUI
+import AppKit
 import NXCore
 import NXLauncher
-
-/// The desktop integration only reports an intent. The application coordinator will supply it later.
-struct ConsoleEntryButton: View {
-    let lang: Lang
-    var compact = false
-    let enterConsole: () -> Void
-    var body: some View {
-        Button(action: enterConsole) {
-            Group {
-                if compact { Image(systemName: "gamecontroller") }
-                else { Label(L10n.string("console.entry", lang), systemImage: "gamecontroller") }
-            }
-                .font(.manrope(13, .semibold)).padding(.horizontal, 12).padding(.vertical, 8)
-                .background(.white.opacity(0.07), in: Capsule()).contentShape(Capsule())
-        }
-        .buttonStyle(.plain).accessibilityLabel(L10n.string("console.entry", lang)).help(L10n.string("console.entry", lang))
-        .padTarget("top.console", scope: "main", radius: 24, activate: enterConsole)
-    }
-}
 
 /// The cream button of a dialog: the launcher's secondary button's size and radius, filled.
 struct LauncherPrimaryButtonStyle: ButtonStyle {
@@ -43,7 +25,7 @@ struct ConsoleConnectionPrompt: View {
     private var glyphs: ConsoleGlyphs { .current() }
     var body: some View {
         ZStack {
-            Color.black.opacity(0.65).ignoresSafeArea()   // the whole window, the area behind the hidden title bar too
+            LauncherPalette.dynamic(dark: NSColor.black.withAlphaComponent(0.65), light: NSColor.black.withAlphaComponent(0.35)).ignoresSafeArea()   // the whole window, the area behind the hidden title bar too
             VStack(alignment: .leading, spacing: 14) {
                 Label(t("console.connectionTitle"), systemImage: "gamecontroller").font(.manrope(22, .bold))
                 Text(t("console.connectionNote")).font(.manrope(14)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -74,7 +56,7 @@ struct ConsoleConnectionPrompt: View {
                 .padding(.top, 6)
             }
             .padding(26).frame(maxWidth: 560).background(LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 22))
-            .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(.white.opacity(0.10)))
+            .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(LauncherPalette.hairline))
             .padding(24)
         }
         .padScope("console.entry", pad)

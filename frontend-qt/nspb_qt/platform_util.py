@@ -8,8 +8,10 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 IS_WIN = sys.platform.startswith('win')
@@ -119,6 +121,7 @@ def python_candidates(extra_candidates: list[str] | None = None) -> list[str]:
             os.path.expandvars(r'%LOCALAPPDATA%\Programs\Python\Python312\python.exe'),
             os.path.expandvars(r'%LOCALAPPDATA%\Programs\Python\Python311\python.exe'),
             os.path.expandvars(r'%ProgramFiles%\Python312\python.exe'),
+            r'C:\Python312\python.exe',
         ]
     else:
         fw = '/Library/Frameworks/Python.framework/Versions'
@@ -130,7 +133,37 @@ def python_candidates(extra_candidates: list[str] | None = None) -> list[str]:
         cands += version_manager_pythons()
     if w := _which('python3' if not IS_WIN else 'python'):
         cands.append(w)
+    if IS_WIN:
+        cands = [c for c in cands if c and 'windowsapps' not in c.replace('/', '\\').lower()]
     return cands
+
+
+def _usable_venv_base(py: str, ver: str) -> bool:
+    """Whether `py` (at version `ver`) can create a venv and install the bundled wheels.
+
+    On Windows the shipped offline `wheels/` folder carries `cp312` (`win_amd64`) wheels only, so
+    an unpacked system Python 3.13 / 3.14 without the packages pre-installed would fail offline
+    `pip install --no-index`. Also reject Windows embeddable zip layouts (`python*._pth`) and
+    custom system installs where `Lib/` is present without `Lib/venv` or `Lib/ensurepip`.
+    """
+    vt = _ver_tuple(ver)
+    if vt < MIN_PYTHON:
+        return False
+    if IS_WIN:
+        if vt != (3, 12):
+            return False
+        py_dir = Path(py).parent
+        try:
+            if any(py_dir.glob('python*._pth')):
+                return False
+            lib_dir = py_dir / 'Lib'
+            if any(py_dir.glob('python*.zip')) and not lib_dir.is_dir():
+                return False
+            if lib_dir.is_dir() and not ((lib_dir / 'venv').is_dir() and (lib_dir / 'ensurepip').is_dir()):
+                return False
+        except OSError:
+            return False
+    return True
 
 
 def find_python(extra_candidates: list[str] | None = None) -> tuple[str, bool, str]:
@@ -141,7 +174,7 @@ def find_python(extra_candidates: list[str] | None = None) -> tuple[str, bool, s
     every python on the machine (see python_candidates for the order).
     """
     probe = (
-        "import lz4, capstone, fontTools, zbic\n"
+        "import lz4, capstone, fontTools, zbic, unicorn\n"
         "try:\n"
         "    from compression import zstd\n"
         "except ImportError:\n"
@@ -164,7 +197,7 @@ def find_python(extra_candidates: list[str] | None = None) -> tuple[str, bool, s
         if _runs(c, ['-c', probe]):
             if ready is None or _win_ver_rank(ver) > _win_ver_rank(ready[1]):
                 ready = (c, ver)
-        elif fallback is None or _win_ver_rank(ver) > _win_ver_rank(fallback[1]):
+        elif _usable_venv_base(c, ver) and (fallback is None or _win_ver_rank(ver) > _win_ver_rank(fallback[1])):
             fallback = (c, ver)
     if ready:
         return (ready[0], True, ready[1])
@@ -191,14 +224,14 @@ def venv_base(preferred: str) -> str | None:
             preferred = str(sub)
     if preferred and p.is_file() and os.access(preferred, os.X_OK):
         v = _python_version(preferred)
-        if v and _ver_tuple(v) >= MIN_PYTHON:
+        if v and _usable_venv_base(preferred, v):
             return preferred
     best: tuple[str, str] | None = None
     for c in python_candidates():
         if not c or not Path(c).is_file() or not os.access(c, os.X_OK):
             continue
         v = _python_version(c)
-        if not v or _ver_tuple(v) < MIN_PYTHON:
+        if not v or not _usable_venv_base(c, v):
             continue
         if best is None or _win_ver_rank(v) > _win_ver_rank(best[1]):
             best = (c, v)
@@ -362,6 +395,11 @@ def child_env(extra: dict[str, str] | None = None) -> dict[str, str]:
     is_frozen = bool(getattr(sys, 'frozen', False) or meipass)
     env.pop('_MEIPASS', None)
     env.pop('_MEIPASS2', None)
+    env.pop('VIRTUAL_ENV', None)
+    env.pop('PYTHONSTARTUP', None)
+    env.pop('PIP_USER', None)
+    env.pop('PIP_TARGET', None)
+    env.pop('PIP_REQUIRE_VIRTUALENV', None)
     if is_frozen:
         for k in ('PYTHONHOME', 'QT_PLUGIN_PATH', 'QML2_IMPORT_PATH'):
             env.pop(k, None)
@@ -411,6 +449,108 @@ def no_window_kwargs() -> dict:
     if IS_WIN:
         return {'creationflags': subprocess.CREATE_NO_WINDOW}
     return {}
+
+
+def process_group_kwargs() -> dict:
+    """Start a child process in its own process group so descendants can be terminated together."""
+    if IS_WIN:
+        if hasattr(subprocess, 'CREATE_NEW_PROCESS_GROUP') or hasattr(subprocess, 'CREATE_NO_WINDOW'):
+            flags = (
+                getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0)
+                | getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+            )
+            return {'creationflags': flags}
+        return {'start_new_session': True}
+    return {'start_new_session': True}
+
+
+def kill_process_tree(proc: subprocess.Popen | None, *, grace_sec: float = 0.2) -> None:
+    """Terminate `proc` and all of its descendants so inherited stdout/stderr pipes close immediately."""
+    if proc is None:
+        return
+    pid = getattr(proc, 'pid', None)
+    valid_pid = isinstance(pid, int) and pid > 1
+    poll_fn = getattr(proc, 'poll', None)
+    kill_fn = getattr(proc, 'kill', None)
+    term_fn = getattr(proc, 'terminate', None)
+    wait_fn = getattr(proc, 'wait', None)
+
+    if IS_WIN:
+        if valid_pid:
+            try:
+                subprocess.run(
+                    ['taskkill', '/F', '/T', '/PID', str(pid)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5,
+                    **no_window_kwargs(),
+                )
+            except (OSError, subprocess.SubprocessError):
+                pass
+        try:
+            still_alive = (poll_fn() is None) if callable(poll_fn) else True
+            if still_alive and callable(kill_fn):
+                kill_fn()
+                if callable(wait_fn):
+                    try:
+                        wait_fn(timeout=0.5)
+                    except (TypeError, subprocess.SubprocessError):
+                        pass
+        except OSError:
+            pass
+        return
+
+    if valid_pid and hasattr(os, 'killpg'):
+        own_pgid = os.getpgrp() if hasattr(os, 'getpgrp') else -1
+        if pid != os.getpid() and pid != own_pgid:
+            sent_group = False
+            try:
+                os.killpg(pid, signal.SIGTERM)
+                sent_group = True
+            except ProcessLookupError:
+                pass
+            except OSError:
+                pass
+            if sent_group:
+                deadline = time.monotonic() + max(0.0, grace_sec)
+                while time.monotonic() < deadline:
+                    if callable(poll_fn):
+                        try:
+                            poll_fn()
+                        except OSError:
+                            pass
+                    try:
+                        os.killpg(pid, 0)
+                    except ProcessLookupError:
+                        sent_group = False
+                        break
+                    except OSError:
+                        break
+                    time.sleep(0.02)
+                if sent_group:
+                    try:
+                        os.killpg(pid, signal.SIGKILL)
+                    except OSError:
+                        pass
+    try:
+        still_alive = (poll_fn() is None) if callable(poll_fn) else False
+        if still_alive:
+            if callable(term_fn):
+                term_fn()
+            if callable(wait_fn):
+                try:
+                    wait_fn(timeout=max(0.05, grace_sec))
+                except subprocess.TimeoutExpired:
+                    if callable(kill_fn):
+                        kill_fn()
+                    try:
+                        wait_fn(timeout=0.5)
+                    except (TypeError, subprocess.SubprocessError):
+                        pass
+                except TypeError:
+                    pass
+    except OSError:
+        pass
 
 
 _ORIG_POPEN_INIT = subprocess.Popen.__init__

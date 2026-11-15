@@ -34,6 +34,7 @@ import NXCore
 @MainActor package final class DependencyStore: ObservableObject, DependencyStatus {
     nonisolated package static let expandedKey = "depsExpanded"
 
+    @Published package private(set) var xcodeApp: String?
     @Published package var deps: [Dep] = []
     /// The check ran. False while one runs, so the panel shows its spinner.
     @Published package var checked = false
@@ -46,13 +47,16 @@ import NXCore
     /// The interpreter the build runs under, set by the check.
     @Published package var pythonPath = ""
     @Published package var dotnetPath = ""
+    /// Live fraction (0...1) and status line while a dependency row installs.
+    @Published package var installProgress: [String: Double] = [:]
+    @Published package var installDetail: [String: String] = [:]
 
     private let localizer: Localizer
     private let runner: ProcessRunner
     private let repo: RepoLocation
     private let defaults: UserDefaults
     private let needsIOS: () -> Bool
-    private let scan: @Sendable (_ repo: String, _ needsIOS: Bool) -> DependencyCheck.Result
+    private let scan: (@Sendable (_ repo: String, _ needsIOS: Bool) -> DependencyCheck.Result)?
     private let report: @Sendable ([Dep]) -> Void
     private let openAppStore: () -> Void
     private let log: (String) -> Void
@@ -67,7 +71,7 @@ import NXCore
     ///   - installFailed: the note for a failed install, already translated.
     package init(localizer: Localizer, runner: ProcessRunner, repo: RepoLocation, defaults: UserDefaults = .standard,
                  needsIOS: @escaping () -> Bool = { true },
-                 scan: @escaping @Sendable (String, Bool) -> DependencyCheck.Result = { DependencyCheck.scan(needsIOS: $1, repo: $0) },
+                 scan: (@Sendable (String, Bool) -> DependencyCheck.Result)? = nil,
                  report: @escaping @Sendable ([Dep]) -> Void = { DependencyCheck.writeReport($0, appVersion: AppUpdateStore.appVersion) },
                  openAppStore: @escaping () -> Void = {}, log: @escaping (String) -> Void = { _ in },
                  installFailed: @escaping (String) -> Void = { _ in }) {
@@ -77,6 +81,7 @@ import NXCore
         self.defaults = defaults
         self.needsIOS = needsIOS
         self.scan = scan
+        self.xcodeApp = XcodeSelection.app(in: defaults)
         self.report = report
         self.openAppStore = openAppStore
         self.log = log
@@ -115,19 +120,30 @@ import NXCore
         return raw
     }
 
+    /// Clear the preference to follow the system Xcode again. A cancelled or invalid choice keeps the previous toolchain.
+    @discardableResult
+    package func selectXcode(_ app: URL?) -> Bool {
+        if let app, !XcodeSelection.isXcode(app.path) { return false }
+        defaults.set(app?.path, forKey: XcodeSelection.key)
+        xcodeApp = app?.path
+        check()
+        return true
+    }
+
     // ---- The check ----
 
     /// Looks at this Mac again: the rows, the interpreter and the dotnet. The panel shows its spinner until it has published.
     @discardableResult
     package func check() -> Task<Void, Never> {
         checked = false
-        let path = repo.path, needsIOS = needsIOS(), scan = self.scan, report = self.report
+        let path = repo.path, needsIOS = needsIOS(), scan = self.scan, report = self.report, selection = xcodeApp
         return Task {
             let found = await Task.detached { () -> DependencyCheck.Result in
-                let r = scan(path, needsIOS)
+                let r = scan?(path, needsIOS) ?? DependencyCheck.scan(needsIOS: needsIOS, repo: path, customApp: selection)
                 report(r.deps)
                 return r
             }.value
+            guard xcodeApp == selection else { return }
             deps = found.deps
             pythonPath = found.python                // the interpreter the build runs under
             dotnetPath = found.dotnet
@@ -147,23 +163,42 @@ import NXCore
         }
         guard let i = deps.firstIndex(where: { $0.id == dep.id }) else { return Task {} }
         deps[i].installing = true
-        let runner = self.runner, log = self.log, base = pythonPath
-        let cmd = dep.installCmd, isPython = dep.id == "python"
+        let depID = dep.id
+        installProgress.removeValue(forKey: depID)
+        installDetail.removeValue(forKey: depID)
+        let runner = self.runner
+        let log = self.log
+        let base = pythonPath
+        let cmd = dep.installCmd
+        let isPython = depID == "python"
         return Task {
-            let outcome = await Task.detached { () -> (ok: Bool, failure: (error: String, fix: String)?, output: String?) in
+            let outcome = await Task.detached { [weak self] () -> (ok: Bool, failure: (error: String, fix: String)?, output: String?) in
                 if isPython {
-                    // A venv of our own rather than pip --user: Homebrew's Python is externally
-                    // managed (PEP 668) and refuses --user, which used to fail silently.
-                    let r = Toolchain.makeVenv(base: base, runner: runner)
+                    let r = Toolchain.makeVenv(base: base, runner: runner) { fraction, detail in
+                        Task { @MainActor [weak self] in
+                            guard let self else { return }
+                            if let fraction { self.installProgress[depID] = fraction }
+                            if !detail.isEmpty { self.installDetail[depID] = detail }
+                        }
+                    }
                     return (r.ok, nil, r.log)
                 }
                 let collected = Lines()
                 let ok = runner.runCaptured(DependencyCheck.shellCommand(cmd), env: DependencyCheck.installEnvironment()) { line in
                     collected.append(line)
-                    DispatchQueue.main.async { log(line + "\n") }
+                    let pct = Toolchain.parsePercent(in: line)
+                    let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                    Task { @MainActor [weak self] in
+                        log(line + "\n")
+                        guard let self else { return }
+                        if let pct { self.installProgress[depID] = max(self.installProgress[depID] ?? 0, pct) }
+                        if !trimmed.isEmpty { self.installDetail[depID] = String(trimmed.prefix(80)) }
+                    }
                 }
                 return (ok, BuildProgress.failureInfo(collected.lines), nil)
             }.value
+            installProgress.removeValue(forKey: depID)
+            installDetail.removeValue(forKey: depID)
             if let output = outcome.output { log("\n--- 安装输出 ---\n" + output) }
             if let j = deps.firstIndex(where: { $0.id == dep.id }) {
                 if let failure = outcome.failure {

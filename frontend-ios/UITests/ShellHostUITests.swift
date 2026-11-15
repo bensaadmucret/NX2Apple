@@ -18,7 +18,7 @@ import XCTest
         let primary = app.buttons.matching(identifier: "state.action").allElementsBoundByIndex.first { $0.isHittable }
         XCTAssertNotNil(primary)
         primary?.tap()
-        XCTAssertTrue(app.alerts["Shell"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.alerts["NX2Apple"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.alerts.staticTexts["Launching is not available yet."].exists)
         app.alerts.buttons["OK"].tap()
     }
@@ -55,14 +55,15 @@ import XCTest
         XCTAssertEqual(app.staticTexts["help.titleid"].label, "Title ID 0100000000050000")
     }
 
-    func testLibraryStartsOnAPlayableGameWithTheVersionLine() {
+    func testLibraryStartsOnAPlayableGameWithoutAVersionLineOnTheCover() {
         XCUIDevice.shared.orientation = .portrait
         app.launchArguments = ["--host"]
         app.launch()
         XCTAssertTrue(app.staticTexts["hero.title"].waitForExistence(timeout: 10))
         XCTAssertNotEqual(app.staticTexts["hero.title"].label, "Bad Settings Fixture")
         XCTAssertEqual(app.staticTexts["hero.title"].label, "Orbit Fixture")
-        XCTAssertTrue(app.staticTexts["Version 1.0.0"].exists)
+        // The accepted design shows the version in the game's settings only, no longer under the hero title.
+        XCTAssertFalse(app.staticTexts["Version 1.0.0"].exists)
     }
 
     func testSettingChangeSurvivesReopeningSettings() {
@@ -73,5 +74,17 @@ import XCTest
         XCTAssertTrue(frameRate.waitForExistence(timeout: 5))
         frameRate.tap()
         XCTAssertEqual(frameRate.value as? String, "1")
+    }
+
+    func testStrippedFrameworkWithoutShadersShowsUpdateDataAction() {
+        XCUIDevice.shared.orientation = .portrait
+        app.launchArguments = ["--host", "--select", "0100000000010000", "--omit-msl", "0100000000010000"]
+        app.launch()
+        XCTAssertTrue(app.buttons["tile.0100000000010000"].waitForExistence(timeout: 10))
+        XCTAssertEqual(app.staticTexts["hero.title"].label, "Orbit Fixture")
+        let action = app.buttons["state.action"]
+        XCTAssertTrue(action.waitForExistence(timeout: 5))
+        XCTAssertTrue(action.label.hasPrefix("Update game data"))
+        XCTAssertFalse(app.buttons["settings.open"].exists)
     }
 }

@@ -1,9 +1,11 @@
+import AppKit
 import SwiftUI
 import NXCore
 import NXModel
 
-/// Settings, "NX2Apple": the language, notifications, the guided setup, the self-update and the uninstaller. Observes the update
-/// store. The two switches that live in the app's defaults come as bindings, and what the uninstaller needs from the library
+/// Settings, the app's own rows, in three parts the categories place (#678): `general` (language, appearance, notifications, return
+/// after play), `updates` (the version, the self-update) and `maintenance` (the guided setup, the uninstaller, which Tools shows).
+/// Observes the update store. The two switches that live in the app's defaults come as bindings, and what the uninstaller needs from the library
 /// and the build store as a closure.
 package struct AppCard: View {
     @ObservedObject var updates: AppUpdateStore
@@ -11,17 +13,26 @@ package struct AppCard: View {
     let notify: Binding<Bool>
     let notifyAvailable: Bool   // false without an app bundle, e.g. under swift run
     let returnAfterPlay: Binding<Bool>
+    let preflightAfterBuild: Binding<Bool>
     let onRunSetup: (() -> Void)?   // the guided first-run setup, again (nil where there is none)
     let uninstallPlan: () -> Uninstall.Plan
+    let part: Part
+    @AppStorage(LauncherAppearance.defaultsKey) private var appearance = LauncherAppearance.system.rawValue
+    @AppStorage(GameDisplay.defaultsKey) private var gameDisplayUUID = ""
+    @State private var screens = NSScreen.screens
     @EnvironmentObject var loc: Localizer
 
+    package enum Part { case general, updates, maintenance }
+
     package init(updates: AppUpdateStore, buildRunning: Bool, notify: Binding<Bool>, notifyAvailable: Bool, returnAfterPlay: Binding<Bool>,
-                 onRunSetup: (() -> Void)?, uninstallPlan: @escaping () -> Uninstall.Plan) {
+                 preflightAfterBuild: Binding<Bool>, onRunSetup: (() -> Void)?, uninstallPlan: @escaping () -> Uninstall.Plan, part: Part = .general) {
+        self.part = part
         self.updates = updates
         self.buildRunning = buildRunning
         self.notify = notify
         self.notifyAvailable = notifyAvailable
         self.returnAfterPlay = returnAfterPlay
+        self.preflightAfterBuild = preflightAfterBuild
         self.onRunSetup = onRunSetup
         self.uninstallPlan = uninstallPlan
     }
@@ -38,7 +49,21 @@ package struct AppCard: View {
     }
 
     package var body: some View {
-        CardGroup(loc.t("section.app"), footnote: updates.status) {
+        Group {
+            switch part {
+            case .general: general
+            case .updates: updatesGroup
+            case .maintenance: maintenance
+            }
+        }
+        // The Display row lists the screens connected now (#1092)
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)) { _ in
+            screens = NSScreen.screens
+        }
+    }
+
+    private var general: some View {
+        CardGroup(loc.t("settings.general")) {
             // The interface language: the device default unless someone picks one here. Stored as
             // "" (follow) or a language code so a later system-language change still applies.
             CardRow(loc.t("settings.language"),
@@ -53,25 +78,45 @@ package struct AppCard: View {
                 .padTarget("set.language", scope: "main", activate: { cycleLanguage(1) }, adjust: { cycleLanguage($0) })
             }
             CardDivider()
+            // The screen a game opens on (#1092): kept by its UUID, which stays when the screen is plugged in again. A screen that is not
+            // connected shows as the launcher's, and GameStart falls back to it.
+            CardRow(loc.t("settings.display")) {
+                LauncherDropdown(options: [(value: "", label: loc.t("settings.display.launcher"))] + screens.compactMap { screen in
+                    GameDisplay.uuid(of: screen).map { (value: $0, label: screen.localizedName) }
+                }, selection: screens.contains { GameDisplay.uuid(of: $0) == gameDisplayUUID } ? gameDisplayUUID : "",
+                    label: loc.t("settings.display"), style: .button) { gameDisplayUUID = $0 }
+            }
+            CardDivider()
+            // System, Light or Dark for the launcher's windows and sheets (LauncherAppearance)
+            CardRow(loc.t("settings.appearance")) {
+                LauncherSegmented(options: LauncherAppearance.allCases.map { ($0.rawValue, loc.t($0.labelKey)) }, selection: appearance) { appearance = $0 }
+                    .compactFrame(minWidth: 276)
+                    .accessibilityElement(children: .contain).accessibilityLabel(loc.t("settings.appearance"))
+                    .padTarget("set.appearance", scope: "main", activate: { cycleAppearance(1) }, adjust: { cycleAppearance($0) })
+            }
+            CardDivider()
             // Build notifications (BuildNotifications.swift): none without an app bundle, e.g. under swift run
             CardRow(loc.t("settings.notify"), detail: loc.t(notifyAvailable ? "settings.notifyNote" : "settings.notifyUnbundled")) {
-                Toggle("", isOn: notify).toggleStyle(LauncherSwitchStyle()).labelsHidden().disabled(!notifyAvailable)
+                Toggle(loc.t("settings.notify"), isOn: notify).toggleStyle(LauncherSwitchStyle()).labelsHidden().disabled(!notifyAvailable)
                     .padTarget("set.notify", scope: "main") { notify.wrappedValue.toggle() }
             }
             CardDivider()
-            if let onRunSetup {
-                CardRow(loc.t("settings.setup"), detail: loc.t("settings.setupNote")) {
-                    Button(loc.t("settings.setupBtn"), action: onRunSetup)
-                        .padTarget("set.setup", scope: "main") { onRunSetup() }
-                }
-                CardDivider()
-            }
             // The launcher back in front when a game it started quits (ReturnAfterPlay.swift)
             CardRow(loc.t("settings.returnAfterPlay"), detail: loc.t("settings.returnAfterPlayNote")) {
-                Toggle("", isOn: returnAfterPlay).toggleStyle(LauncherSwitchStyle()).labelsHidden()
+                Toggle(loc.t("settings.returnAfterPlay"), isOn: returnAfterPlay).toggleStyle(LauncherSwitchStyle()).labelsHidden()
                     .padTarget("set.returnAfterPlay", scope: "main") { returnAfterPlay.wrappedValue.toggle() }
             }
             CardDivider()
+            // A new Mac app's first start checked by macOS as the build's last stage (MacPreflight, #1005)
+            CardRow(loc.t("settings.preflightAfterBuild"), detail: loc.t("settings.preflightAfterBuildNote")) {
+                Toggle("", isOn: preflightAfterBuild).toggleStyle(LauncherSwitchStyle()).labelsHidden()
+                    .padTarget("set.preflightAfterBuild", scope: "main") { preflightAfterBuild.wrappedValue.toggle() }
+            }
+        }
+    }
+
+    private var updatesGroup: some View {
+        CardGroup(loc.t("settings.updates"), footnote: updates.status) {
             CardRow("NX2Apple", detail: String(format: loc.t("app.version"), updates.version),
                 dot: updates.staged != nil ? LauncherPalette.ready : nil) {
                 if updates.busy { ProgressView().controlSize(.small) }
@@ -91,7 +136,29 @@ package struct AppCard: View {
                 }
             }
             CardDivider()
+            // A launcher built from the repository never replaces itself (AppUpdate.installability): the switch says so and stays off
+            CardRow(loc.t("app.auto"), detail: loc.t(updates.installability == .ok ? "app.autoNote" : updates.installability == .developer ? "app.autoDev" : "app.autoReadOnly")) {
+                Toggle(loc.t("app.auto"), isOn: Binding(get: { updates.automatic && updates.installability == .ok }, set: { updates.automatic = $0 }))
+                    .labelsHidden().toggleStyle(LauncherSwitchStyle()).disabled(updates.installability != .ok)
+                    .padTarget("set.appAuto", scope: "main") { if updates.installability == .ok { updates.automatic.toggle() } }
+            }
+        }
+    }
+
+    @ViewBuilder private var maintenance: some View {
+        if onRunSetup != nil || updates.installability == .ok { maintenanceGroup }
+    }
+
+    private var maintenanceGroup: some View {
+        CardGroup(loc.t("settings.maintenance")) {
+            if let onRunSetup {
+                CardRow(loc.t("settings.setup"), detail: loc.t("settings.setupNote")) {
+                    Button(loc.t("settings.setupBtn"), action: onRunSetup)
+                        .padTarget("set.setup", scope: "main") { onRunSetup() }
+                }
+            }
             if updates.installability == .ok {
+                if onRunSetup != nil { CardDivider() }
                 // The uninstaller (Uninstall.swift): state folders and the launcher's own checkout go; the
                 // games folder and prod.keys stay; the app itself goes to the Trash.
                 CardRow(loc.t("uninstall.title"), detail: loc.t("uninstall.note")) {
@@ -99,15 +166,14 @@ package struct AppCard: View {
                     .disabled(buildRunning)
                     .padTarget("set.uninstall", scope: "main") { if !buildRunning { updates.uninstallPlan = uninstallPlan() } }
                 }
-                CardDivider()
-            }
-            // A launcher built from the repository never replaces itself (AppUpdate.installability): the switch says so and stays off
-            CardRow(loc.t("app.auto"), detail: loc.t(updates.installability == .ok ? "app.autoNote" : updates.installability == .developer ? "app.autoDev" : "app.autoReadOnly")) {
-                Toggle("", isOn: Binding(get: { updates.automatic && updates.installability == .ok }, set: { updates.automatic = $0 }))
-                    .labelsHidden().toggleStyle(LauncherSwitchStyle()).disabled(updates.installability != .ok)
-                    .padTarget("set.appAuto", scope: "main") { if updates.installability == .ok { updates.automatic.toggle() } }
             }
         }
+    }
+
+    private func cycleAppearance(_ by: Int) {
+        let all = LauncherAppearance.allCases
+        let at = all.firstIndex { $0.rawValue == appearance } ?? 0
+        appearance = all[(at + by + all.count) % all.count].rawValue
     }
 
     /// The interface language one step on (a controller's left / right on the language list).

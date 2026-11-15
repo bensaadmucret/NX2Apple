@@ -3,6 +3,8 @@ import Foundation
 package struct Stage: Identifiable {
     package let id: Int          // k, the stage number in the script's own plan
     package var name: String
+    package var nameKey: String? = nil
+    package var nameArgument: String? = nil
     package var state: StepState = .running
     package var detail: String = ""
     package var isScanningLastShaderFiles = false
@@ -12,9 +14,21 @@ package struct Stage: Identifiable {
     package var etaAt: Date? = nil
 
     package init(id: Int, name: String, state: StepState = .running, detail: String = "", percent: Double? = nil,
-                 started: Date? = nil, eta: Double? = nil, etaAt: Date? = nil) {
+                 started: Date? = nil, eta: Double? = nil, etaAt: Date? = nil, nameKey: String? = nil, nameArgument: String? = nil) {
         self.id = id; self.name = name; self.state = state; self.detail = detail; self.percent = percent
-        self.started = started; self.eta = eta; self.etaAt = etaAt
+        self.started = started; self.eta = eta; self.etaAt = etaAt; self.nameKey = nameKey; self.nameArgument = nameArgument
+    }
+
+    /// The name in the launcher's current language, worked out each time the row is drawn so a language change
+    /// reaches stages that already started: an app stage from its key, a script stage from its English name.
+    package func displayName(_ t: (String) -> String) -> String {
+        Self.displayName(name: name, nameKey: nameKey, nameArgument: nameArgument, t)
+    }
+
+    package static func displayName(name: String, nameKey: String?, nameArgument: String?, _ t: (String) -> String) -> String {
+        guard let nameKey else { return localizedName(name, t) }
+        let format = t(nameKey)
+        return nameArgument.map { String(format: format, $0) } ?? format
     }
 
     /// A stage's name in the launcher's language. The script names its stages in English (PROG.stage in
@@ -30,22 +44,36 @@ package struct Stage: Identifiable {
         // A game folder packs each version into an image ("pack v458752", pack_dump.py), a NUP unpacks it ("unpack v196608", pack_nup.py)
         if name.hasPrefix("pack "), let f = known("stage.pack") { return String(format: f, String(name.dropFirst("pack ".count))) }
         if name.hasPrefix("unpack "), let f = known("stage.unpack") { return String(format: f, String(name.dropFirst("unpack ".count))) }
+        if name.hasPrefix("check "), name.hasSuffix(" files"), let f = known("stage.check") {
+            return String(format: f, String(name.dropFirst("check ".count).dropLast(" files".count)))
+        }
         if name.hasSuffix(" shader capture"), let f = known("stage.capture") { return String(format: f, String(name.dropLast(" shader capture".count))) }
         return name
     }
 
-    /// "3:42" since the stage began, then "1 min left" while the script's estimate, counted down from when it came,
-    /// lasts: the estimate only arrives with a new count, so one taken as it was would stand still with the count.
+    /// The seconds left, only when the estimate holds against the stage's own progress (LNPANDY/NX2Apple#934): the stage reports a
+    /// share done (5 to 99 %) and has run 30 s, and the script's estimate is within a factor of five of what that share and the
+    /// elapsed time project. Anything else is no estimate, and the view shows the calm indeterminate state. The share is the
+    /// current stage's, never the whole build's.
+    package func remaining(at now: Date) -> Double? {
+        guard let eta, let etaAt, let percent, let started, percent >= 5, percent < 100 else { return nil }
+        let elapsed = now.timeIntervalSince(started)
+        guard elapsed >= 30 else { return nil }
+        let projected = elapsed * (100 - percent) / percent
+        let counted = eta - now.timeIntervalSince(etaAt)
+        guard counted >= 1, projected > 0, counted <= projected * 5, counted >= projected / 5 else { return nil }
+        return counted
+    }
+
+    /// "3:42" since the stage began, then "about 1 min left (estimate)" while a defensible estimate (`remaining`) lasts. The estimate
+    /// is counted down from when it came: it only arrives with a new count, so one taken as it was would stand still with the count.
     package func clock(at now: Date, left: String) -> String {
         var parts: [String] = []
         if let started {
             let t = max(0, Int(now.timeIntervalSince(started)))
             parts.append(t >= 3600 ? String(format: "%d:%02d:%02d", t / 3600, t / 60 % 60, t % 60) : String(format: "%d:%02d", t / 60, t % 60))
         }
-        if let eta, let etaAt {
-            let remaining = eta - now.timeIntervalSince(etaAt)
-            if remaining >= 1 { parts.append(String(format: left, BuildProgress.duration(remaining))) }
-        }
+        if let remaining = remaining(at: now) { parts.append(String(format: left, BuildProgress.duration(remaining))) }
         return parts.joined(separator: " · ")
     }
 }
@@ -90,19 +118,21 @@ package enum BuildProgress {
         let fm = FileManager.default
         let candidates = [workDir + "/pso/mac-work", workDir + "/ipa/build/ios/pso/work"]
         var chosenWork = ""
-        var rootMtime = Date.distantPast
+        // Compare `TimeInterval` (`Double`) rather than `Date >= Date`: Xcode 27.2 SDK emits `Foundation.Date.>=`
+        // as a weak-imported symbol under `-O`, which binds to NULL (`pc = 0`) on early macOS 27.2 betas (#1131).
+        var rootMtime = Date.distantPast.timeIntervalSinceReferenceDate
         var rootSize: UInt64 = 0
         for dir in candidates {
             let js = dir + "/bases.mtl4-json"
             guard let attr = try? fm.attributesOfItem(atPath: js),
                   let size = attr[.size] as? UInt64, size > 0,
-                  let mtime = attr[.modificationDate] as? Date else { continue }
+                  let mtime = (attr[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate else { continue }
             if mtime >= rootMtime {
                 chosenWork = dir; rootMtime = mtime; rootSize = size
             }
         }
         guard !chosenWork.isEmpty else { return nil }
-        let cutoff = rootMtime.addingTimeInterval(-2)
+        let cutoff = rootMtime - 2
 
         // 1. Prefer `pso_offline.py`'s own batch log lines (`pso_offline: <arch>: batch i/N: ...` / `merging N batches`),
         // which carry the exact batch total without reading `bases.mtl4-json` or assuming a fixed batch size.
@@ -115,12 +145,12 @@ package enum BuildProgress {
         guard let entries = try? fm.contentsOfDirectory(atPath: chosenWork) else { return nil }
         let archDirs = entries.filter { $0.hasPrefix("batches.") && $0.count > "batches.".count }
         var chosenArch = ""
-        var latestArchMtime = Date.distantPast
+        var latestArchMtime = Date.distantPast.timeIntervalSinceReferenceDate
         for name in archDirs {
             let p = chosenWork + "/" + name
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: p, isDirectory: &isDir), isDir.boolValue else { continue }
-            let mtime = (try? fm.attributesOfItem(atPath: p)[.modificationDate] as? Date) ?? .distantPast
+            let mtime = ((try? fm.attributesOfItem(atPath: p)[.modificationDate] as? Date) ?? .distantPast).timeIntervalSinceReferenceDate
             if chosenArch.isEmpty || mtime >= latestArchMtime {
                 chosenArch = String(name.dropFirst("batches.".count))
                 latestArchMtime = mtime
@@ -130,11 +160,11 @@ package enum BuildProgress {
         let batchesRoot = chosenWork + "/batches." + chosenArch
         let firstBatchJS = batchesRoot + "/00001/bases.mtl4-json"
         guard let firstAttr = try? fm.attributesOfItem(atPath: firstBatchJS),
-              let firstMtime = firstAttr[.modificationDate] as? Date,
+              let firstMtime = (firstAttr[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate,
               firstMtime >= cutoff else { return nil }
 
         let jsPath = chosenWork + "/bases.mtl4-json"
-        let cacheKey = "\(jsPath)|\(rootSize)|\(rootMtime.timeIntervalSince1970)"
+        let cacheKey = "\(jsPath)|\(rootSize)|\(rootMtime)"
         let basesCount: Int = {
             basesCacheLock.lock()
             if let cached = basesCache, cached.key == cacheKey {
@@ -142,7 +172,7 @@ package enum BuildProgress {
                 return cached.count
             }
             basesCacheLock.unlock()
-            guard let data = try? Data(contentsOf: URL(fileURLWithPath: jsPath), options: .mappedIfSafe) else { return 0 }
+            guard let data = try? Data(contentsOf: URL(fileURLWithPath: jsPath)) else { return 0 }
             let token = Data("\"vertex_function_descriptor\"".utf8)
             var count = 0
             var searchRange = data.startIndex..<data.endIndex
@@ -164,7 +194,7 @@ package enum BuildProgress {
             let batchDir = batchesRoot + "/" + String(format: "%05d", index)
             let batchJS = batchDir + "/bases.mtl4-json"
             guard let bAttr = try? fm.attributesOfItem(atPath: batchJS),
-                  let bMtime = bAttr[.modificationDate] as? Date,
+                  let bMtime = (bAttr[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate,
                   bMtime >= cutoff else { break }
             let keyPath = batchDir + "/key." + chosenArch
             let archivePath = batchDir + "/" + chosenArch + ".mtl4a"
@@ -177,19 +207,19 @@ package enum BuildProgress {
             done = index
         }
         let packLog = chosenWork + "/metal-pack." + chosenArch + ".log"
-        let packMtime = (try? fm.attributesOfItem(atPath: packLog)[.modificationDate] as? Date) ?? .distantPast
+        let packMtime = ((try? fm.attributesOfItem(atPath: packLog)[.modificationDate] as? Date) ?? .distantPast).timeIntervalSinceReferenceDate
         let merging = done == total && packMtime >= cutoff
         return PSOArchiveProgress(done: done, total: total, merging: merging)
     }
 
-    private static func psoProgressFromLogs(workDir: String, cutoff: Date, fm: FileManager) -> PSOArchiveProgress? {
+    private static func psoProgressFromLogs(workDir: String, cutoff: TimeInterval, fm: FileManager) -> PSOArchiveProgress? {
         let logNames = ["pso_offline_mac.log", "build_ipa.log", "build_framework.log", "prepare_xcode.log"]
         var bestLog = ""
-        var bestMtime = Date.distantPast
+        var bestMtime = Date.distantPast.timeIntervalSinceReferenceDate
         for name in logNames {
             let p = workDir + "/logs/" + name
             guard let attr = try? fm.attributesOfItem(atPath: p),
-                  let mtime = attr[.modificationDate] as? Date,
+                  let mtime = (attr[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate,
                   mtime >= cutoff else { continue }
             if bestLog.isEmpty || mtime >= bestMtime {
                 bestLog = p; bestMtime = mtime
@@ -243,9 +273,35 @@ package enum BuildProgress {
         return total - done <= 16
     }
 
+    private static let notCachedNumber = #"(?:\d{1,3}(?:[,.\u00A0\u202F ]\d{3})+|\d+)"#
+    private static let parenNotCachedRe = try? NSRegularExpression(
+        pattern: #"\s*\(\s*"# + notCachedNumber + #"\s+not\s+cached\s*\)"#,
+        options: [.caseInsensitive]
+    )
+    private static let leadingSepNotCachedRe = try? NSRegularExpression(
+        pattern: #"(?:\s*·\s*|(?<!\d)\s*[,;]\s*|\s*[,;]\s+)"# + notCachedNumber + #"\s+not\s+cached\b"#,
+        options: [.caseInsensitive]
+    )
+    private static let standaloneNotCachedRe = try? NSRegularExpression(
+        pattern: #"(?<![\d,.\u00A0\u202F])"# + notCachedNumber + #"\s+not\s+cached\b(?:\s*·\s*|\s*[,;]\s+|\s{2,})?"#,
+        options: [.caseInsensitive]
+    )
+
+    /// Removes redundant `<N> not cached` counts from a stage's detail or note while keeping counts, cached hit notes, and error text intact.
+    package static func strippingNotCached(_ text: String) -> String {
+        guard !text.isEmpty, text.range(of: "not", options: .caseInsensitive) != nil else { return text }
+        var out = text
+        for re in [parenNotCachedRe, leadingSepNotCachedRe, standaloneNotCachedRe].compactMap({ $0 }) {
+            let ns = out as NSString
+            out = re.stringByReplacingMatches(in: out, range: NSRange(location: 0, length: ns.length), withTemplate: "")
+        }
+        return out.trimmingCharacters(in: .whitespaces)
+    }
+
     /// "splitting · 1.2 / 3.4 GB", "1,203 / 19,592 shaders", "2,301 files": the step and the count (the time left is the Stage's clock).
     package static func progressDetail(_ e: [String: Any]) -> String {
-        let step = e["step"] as? String ?? "", unit = e["unit"] as? String ?? "", note = e["note"] as? String ?? ""
+        let step = e["step"] as? String ?? "", unit = e["unit"] as? String ?? ""
+        let note = strippingNotCached(e["note"] as? String ?? "")
         let done = (e["done"] as? NSNumber)?.doubleValue, total = (e["total"] as? NSNumber)?.doubleValue
         let estimate = (e["est"] as? Bool ?? false) ? "~" : ""
         var count = ""
@@ -279,38 +335,74 @@ package enum BuildProgress {
     }
 
     package static func parseStage(_ line: String) -> (k: Int, name: String, state: StepState, detail: String, percent: Double?)? {
+        guard let parsed = parseStageWithTotal(line) else { return nil }
+        return (parsed.k, parsed.name, parsed.state, parsed.detail, parsed.percent)
+    }
+
+    package static func parseStageWithTotal(_ line: String) -> (k: Int, n: Int, name: String, state: StepState, detail: String, percent: Double?)? {
         guard let re = try? NSRegularExpression(pattern: #"\[(\d+)/(\d+)\] (.+)$"#) else { return nil }
         let ns = line as NSString
         guard let m = re.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)) else { return nil }
-        guard let k = Int(ns.substring(with: m.range(at: 1))) else { return nil }
+        guard let k = Int(ns.substring(with: m.range(at: 1))),
+              let n = Int(ns.substring(with: m.range(at: 2))) else { return nil }
         var rest = ns.substring(with: m.range(at: 3))
 
         if let pct = rest.range(of: #"(\d+)%"#, options: .regularExpression) {
             let v = Double(rest[pct].dropLast()) ?? 0
             var name = String(rest[..<pct.lowerBound]).trimmingCharacters(in: CharacterSet(charactersIn: " :·"))
             if let dot = name.range(of: " · ", options: .backwards) { name = String(name[..<dot.lowerBound]) }
-            let after = String(rest[pct.upperBound...]).trimmingCharacters(in: CharacterSet(charactersIn: ", :"))
-            return (k, name, .running, after, v)
+            let after = strippingNotCached(String(rest[pct.upperBound...]).trimmingCharacters(in: CharacterSet(charactersIn: ", :")))
+            return (k, n, name, .running, after, v)
         }
         let ok = line.contains("✓") || line.contains("⚠"), bad = line.contains("✗")
         if ok || bad {
             var detail = ""
-            if let r = rest.range(of: "): ") { detail = String(rest[r.upperBound...]); rest = String(rest[..<r.lowerBound]) + ")" }
+            if let r = rest.range(of: "): ") {
+                detail = String(rest[r.upperBound...])
+                rest = String(rest[..<r.lowerBound]) + ")"
+            }
             if let r = rest.range(of: " (", options: .backwards) { rest = String(rest[..<r.lowerBound]) }
-            return (k, rest, bad ? .failed : .done, detail, 100)
+            return (k, n, rest, bad ? .failed : .done, detail, 100)
         }
         if rest.hasSuffix(" …") {
             rest = String(rest.dropLast(2))
             if let dot = rest.range(of: " · ", options: .backwards), !rest.hasPrefix("survey") { rest = String(rest[..<dot.lowerBound]) }
-            return (k, rest, .running, "", nil)
+            return (k, n, rest, .running, "", nil)
         }
         var detail = ""
         if let col = rest.range(of: ": ") {
-            detail = String(rest[col.upperBound...]).trimmingCharacters(in: .whitespaces)
+            detail = strippingNotCached(String(rest[col.upperBound...]).trimmingCharacters(in: .whitespaces))
             rest = String(rest[..<col.lowerBound])
         }
         if let dot = rest.range(of: " · ", options: .backwards), !rest.hasPrefix("survey") { rest = String(rest[..<dot.lowerBound]) }
-        return (k, rest, .running, detail, nil)
+        return (k, n, rest, .running, detail, nil)
+    }
+
+    /// Monotonic overall build progress in `0.0...1.0` across script stages (`1..<1000`) and post-build steps.
+    package static func overallFraction(stages: [Stage], totalStages: Int, floor: Double = 0) -> Double? {
+        let clampedFloor = min(max(floor, 0), 0.995)
+        let scriptStages = stages.filter { $0.id > 0 && $0.id < 1000 }
+        let total = max(totalStages, scriptStages.map(\.id).max() ?? 0)
+        let active = stages.last(where: { $0.state == .running })
+        guard total > 0, !scriptStages.isEmpty else {
+            if let pct = active?.percent {
+                return max(clampedFloor, min(max(pct / 100.0, 0), 0.995))
+            }
+            return clampedFloor > 0 ? clampedFloor : nil
+        }
+        if let active, active.id > 0, active.id < 1000 {
+            let doneBefore = Double(max(active.id - 1, scriptStages.filter { $0.state == .done && $0.id != active.id }.count))
+            let share = min(max((active.percent ?? 0) / 100.0, 0), 0.99)
+            let raw = min((doneBefore + share) / Double(total), 0.95)
+            return max(clampedFloor, raw)
+        }
+        let doneCount = Double(scriptStages.filter { $0.state == .done }.count)
+        var raw = min(doneCount / Double(total), 0.95)
+        if let active, active.id >= 1000, doneCount >= Double(total) {
+            let postShare = min(max((active.percent ?? 0) / 100.0, 0), 0.99)
+            raw = max(raw, min(0.95 + postShare * 0.045, 0.995))
+        }
+        return max(clampedFloor, raw)
     }
 
     /// What xcodebuild is doing, from the actions it prints.

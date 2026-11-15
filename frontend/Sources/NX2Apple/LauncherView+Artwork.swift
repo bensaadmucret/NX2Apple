@@ -29,12 +29,27 @@ extension LauncherView {
         }
     }
 
-    /// The eShop key art of the games that have none yet; the cards and the hero redraw as it arrives.
+    /// What the hero draws: its own decode at the hero's size, never the card's 640 pixel thumbnail (stretched over a 2880 pixel
+    /// wide hero it was blurred). Until `refreshHeroArtwork` has run for this game it decodes here (ArtworkImages keeps it).
+    func heroImage(for game: LibraryGame) -> NSImage? {
+        GameLibrary.heroImage(for: game.id, decoded: heroArtwork) {
+            GameLibrary.artwork(for: displayed(game), repo: stores.repo.path, banners: library.artworkDirectory)
+        }
+    }
+
+    /// The eShop key art of the games that have none yet, in the launcher's language: the cards and the hero redraw as it arrives.
+    /// A change of language picks every banner again (ArtworkStore.fetchMissing).
     func fetchArtwork() {
-        let ids = library.games.map(\.titleID)
+        let ids = library.games.map(\.titleID), language = loc.lang.code, store = artworkStore
+        artworkFetchGeneration &+= 1
+        let generation = artworkFetchGeneration
         Task {
-            let added = await ArtworkStore.shared.fetchMissing(ids)
-            if !added.isEmpty { await MainActor.run { refreshArtwork() } }
+            let added = await store.fetchMissing(ids, language: language)
+            guard !added.isEmpty else { return }
+            await MainActor.run {
+                guard artworkFetchGeneration == generation, loc.lang.code == language else { return }
+                refreshArtwork()
+            }
         }
     }
 

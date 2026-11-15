@@ -81,7 +81,7 @@ there once at start (a rename on the same volume, shell.json's paths are rewritt
 it is the folder the launcher made, shell.json can be read and the new place is free. On any doubt
 the old folder stays where it is and keeps being used, and nothing is deleted. Uninstalling the
 launcher leaves this folder alone. The launcher
-generates the app's project with `dm/ios/tools/build_shell.sh --prepare-xcode`, signs it with
+generates the app's project with `frontend-ios/Shell/build_shell.sh --prepare-xcode`, signs it with
 `xcodebuild -allowProvisioningUpdates` and installs it over the one already there with
 `xcrun devicectl device install app`, which keeps the app's Documents. The game files are packed
 into `games/<title ID>/romfs.img`, with any DLC in `aoc/` beside it. They are compared with the
@@ -169,7 +169,7 @@ library manifest is stored at
 ## Launch options
 
 The button beside **Play** opens the game's launch options: the settings the iPhone
-launcher shows before a game starts ([docs/settings.md](https://github.com/seedds/nxnative/blob/f25fa9562ee96d06f1e6412dbb91aab2b7035ec1/docs/settings.md)), read
+launcher shows before a game starts ([docs/settings.md](https://github.com/seedds/nxnative/blob/5a4e23a2e952dae92e1ccf0e6b7bf24e3266d4e8/docs/settings.md)), read
 from the list the engine packs into the Mac app (`Contents/Resources/dm/launcher.json`,
 written by `dm/games/settings.py` from `dm/games/settings.tsv`, and the engine change that
 packs it is [seedds/nxnative#352](https://github.com/seedds/nxnative/pull/352), so a
@@ -299,27 +299,39 @@ bundle), a bundle under `.build/` or `DerivedData/`, a bundle beside
 `Package.swift` (the `NX2Apple.app` made here), or one whose Info.plist version
 is not this binary's release number. `AppUpdate.swift` holds these rules.
 
-## The nxb builder
+## Experimental builder
 
-Settings, Build tools, **Build with nxb** (on by default, LNPANDY/NX2Apple#749). `nxb` is the build tool of [nxkit](https://github.com/v0lumehi/nxkit), in Rust. It makes the same files as the NSP script, faster. With the switch on, the launcher runs `nxb build` with the script's own arguments and `NXB_ENGINE` set to the engine. Exit code 4 ("not supported yet") runs the NSP script with the same arguments, in the same build. Any other failure shows nxb's exit code and its last error line. `BUILDING.md` lists the exit codes. With the switch off, the NSP script builds everything. A player who turned the switch off keeps that choice.
+Settings, Build tools, **Use experimental builder** (off by default, LNPANDY/NX2Apple#749). nxbuild is a build tool in Rust that reproduces stages of the NSP script byte for byte, and faster. With the switch on, the build gets `DM_EXPERIMENTAL_BUILDER=1` and `NXB_BIN` (the path of the `nxb` binary). The script stays the driver. It runs the extraction (`nxb-extract`) and the shader split (`nxb-split`) through nxbuild where nxbuild supports the case, with the same outputs, stages and events. Everything else runs the standard way:
+
+- an XCI, an NSZ, a merged package, `--program`, `--allow-damaged`, DLC, run-time captures, NROs, a game decoder, a provisional or derived profile
+- an nxbuild exit code other than 0 (4 means "not supported yet")
+- an output that fails the checks: for an extraction the title, `ExeFS/main`, `RomFS.img` and the profile's marker, for the split the data rows of the profile's shader tables
+
+The build log says which stage nxbuild ran and why a stage fell back. nxbuild's own log is `logs/nxb_extract_<version>.log` or `logs/nxb_split.log` in the build folder. The shader step, the pipeline archive and the Mac app are not handed over yet. The NSP script needs the engine patch that reads the two variables. An engine without it ignores them.
 
 Where `nxb` comes from (`ExperimentalBuilder` in `NXCore`):
 
 1. The path chosen in the row under the switch, the `nxb` binary or the folder that holds it. A chosen path that does not work is reported, never replaced by another binary.
-2. Otherwise the app's own copy, `Contents/Resources/nxbuild/nxb`. `frontend/nxbuild.pin` names the nxkit release (version, SHA-256, URL pattern). `build-mac-app.yml` and `tools/try-local` run `frontend/tools/nxbuild.py fetch`. It downloads the zip, checks its SHA-256 against the pin before anything is unpacked, puts `nxb` into Resources and signs it ad hoc. A zip whose digest differs fails the app build. A pin with `PLACEHOLDER` as its digest bundles nothing. `frontend/tools/nxbuild.py bump <version>` pins a new release with the digest from its `SHA256SUMS`. Players download nothing at run time.
+2. Otherwise the app's own copy, `Contents/Resources/nxbuild/nxb`. `frontend/nxbuild.pin` names the nxbuild release (version, SHA-256, URL pattern). `build-mac-app.yml` and `tools/try-local` run `frontend/tools/nxbuild.py fetch`: it downloads the zip, checks its SHA-256 against the pin before anything is unpacked, puts `nxb` into Resources and signs it ad hoc. A zip whose digest differs fails the app build. A pin with `PLACEHOLDER` as its digest bundles nothing. `frontend/tools/nxbuild.py bump <version>` pins a new release with the digest from its `SHA256SUMS`. Players download nothing at run time.
 
-With neither, the build log says so and the NSP script builds.
+With neither, the switch only writes a note in the build log and the standard builder runs.
 
-To try a local nxkit:
+To try a local nxbuild:
 
 ```bash
-cd <nxkit checkout> && cargo build --release      # the binaries land in its target folder, release/
-codesign --force --sign - <target>/release/nxb*   # ad hoc, as the app's copy
+cd <nxbuild checkout> && cargo build --release      # the binaries land in its target folder, release/
+codesign --force --sign - <target>/release/nxb*     # ad hoc, as the app's copy
 ```
 
-Then choose `release/nxb` (or the folder) in the row under the switch.
+Then turn the switch on and choose `release/nxb` (or the folder). From a terminal, the same works without the launcher:
 
-The Qt front end has no switch for it. nxb is built for macOS on Apple silicon only, and on a Mac the launcher above is the one to use.
+```bash
+DM_EXPERIMENTAL_BUILDER=1 NXB_BIN=<target>/release/nxb python3 engine/scripts/build_ipa_from_nsp.py <NSP folder> -k <prod.keys> --platform mac-app
+```
+
+The script takes a stage binary beside `nxb` (`nxb-extract`, `nxb-split`) when there is one, else the subcommand of `nxb` (`nxb extract`, `nxb split`).
+
+The Qt front end has no switch for it: nxbuild is built for macOS on Apple silicon only, and on a Mac the launcher above is the one to use.
 
 ## Run
 
@@ -328,8 +340,8 @@ cd frontend
 swift run
 ```
 
-or double-click `nxnative.app` in this folder (ad-hoc signed, and rebuild it with `swift build -c release`
-and copy the binary into `Contents/MacOS/`). The app's settings and library stay under the folder name it
+or double-click `nxnative.app` in this folder (ad-hoc signed, and rebuild it with `tools/build_launcher.sh`, which runs `swift build -c release`
+with the SDK on the link, and copy `.build/release/NX2Apple` into `Contents/MacOS/`). The app's settings and library stay under the folder name it
 had before the rename, `~/Library/Application Support/NS Port Builder/`.
 
 To try the app CI built for a pull request, for `main` or for a release candidate, without building it: `tools/try-pr 271`,
@@ -430,6 +442,14 @@ lookup shows the English text, then the key, and one line goes to standard error
 ```bash
 swift test --package-path frontend
 ```
+
+To skip the multi-minute UI width and interaction-budget suites on routine local pushes, `pre-push` runs:
+
+```bash
+swift test --package-path frontend --skip 'LauncherControlWidthTests|LauncherPerformanceTests'
+```
+
+Run `swift test --package-path frontend --filter LauncherControlWidthTests` whenever a change touches UI layout, control sizing or localized button widths, and CI still runs the full `swift test` suite on every pull request.
 
 The Swift tests cover bundle validation, persistent metadata, folder discovery,
 source-file preservation, and automatic registration through a synthetic build

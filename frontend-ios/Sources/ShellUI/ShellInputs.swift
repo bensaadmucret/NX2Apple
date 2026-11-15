@@ -5,6 +5,9 @@ import CoreGraphics
 public enum GameState: Equatable, Sendable {
     case playable
     case needsGameData
+    case needsDataUpdate(staleChain: Bool = false)
+    /// Background `.nxpart` split-file assembly in `Documents/games/<titleID>/` with percentage and formatted byte counts.
+    case joiningGameData(percent: Int, doneSize: String, totalSize: String)
     case needsAppUpdate
     /// `reason` is one short line for under the title, such as "Game files damaged". `detail` is a plain sentence
     /// for the player (what happened, what to do), shown under the title and in the How to fix sheet. `technical`
@@ -12,23 +15,67 @@ public enum GameState: Equatable, Sendable {
     case broken(reason: String, detail: String = "", technical: String = "")
 }
 
+/// Mild heads-up shown when the app's provisioning profile expires within 48 hours (such as a 7-day free Apple ID signature).
+public enum SigningWarning: Equatable, Sendable {
+    case expiringHours(Int)
+    case expiringSoon
+    case expired
+}
+
+/// Player choice in `CloudSaveConflictView`.
+public enum CloudSaveDecision: Equatable, Sendable {
+    case useCloud
+    case useDevice
+    case playOffline
+    case cancel
+}
+
+/// Pre-launch cloud save prompt data supplied by `ShellHost` when both sides changed or the cloud save could not be read.
+public struct CloudSavePrompt: Identifiable, Equatable, Sendable {
+    public var id: String
+    public var gameID: String
+    public var gameTitle: String
+    public var isUnreadable: Bool
+    public var reason: String
+    public var cloudDevice: String
+    public var cloudSaved: String
+    public var localSaved: String
+
+    public init(id: String = UUID().uuidString, gameID: String, gameTitle: String, isUnreadable: Bool = false,
+                reason: String = "", cloudDevice: String = "", cloudSaved: String = "", localSaved: String = "") {
+        self.id = id
+        self.gameID = gameID
+        self.gameTitle = gameTitle
+        self.isUnreadable = isUnreadable
+        self.reason = reason
+        self.cloudDevice = cloudDevice
+        self.cloudSaved = cloudSaved
+        self.localSaved = localSaved
+    }
+}
+
 public struct GameTile: Identifiable, Equatable, Sendable {
     public var id: String
     public var title: String
     /// One short line under the title, such as the version.
     public var subtitle: String
+    public var version: String
     /// The game's 16:9 key art, such as its eShop banner. Covers, Cover Flow cards and the hero all use it.
     public var banner: Artwork?
-    /// The square NACP icon. Only a fallback without a banner: shown whole inside a 16:9 card, never stretched.
+    /// The square app icon beside metadata. Without a banner, also shown whole inside the 16:9 card.
     public var icon: Artwork?
     public var state: GameState
     /// Already localized, such as "Played today". Nil leaves the game out of Recently played.
     public var recentlyPlayed: String?
+    /// The engine's manifest says it is a Switch 2 game: the detail view marks it and warns about its memory.
+    public var isSwitch2: Bool
     public init(id: String, title: String, subtitle: String = "", banner: Artwork? = nil, icon: Artwork? = nil,
-                state: GameState = .playable, recentlyPlayed: String? = nil) {
+                state: GameState = .playable, recentlyPlayed: String? = nil, version: String = "", isSwitch2: Bool = false) {
+        self.isSwitch2 = isSwitch2
         self.id = id
         self.title = title
         self.subtitle = subtitle
+        self.version = version
         self.banner = banner
         self.icon = icon
         self.state = state
@@ -42,6 +89,7 @@ public struct SettingOption: Identifiable, Equatable, Sendable {
     /// The label is a text of the game's launcher.json: it is shown in the player's language when the catalog has it.
     public init(_ value: String, _ label: String) { self.init(value, label, in: ShellStrings.bundle) }
     init(_ value: String, _ label: String, in bundle: Bundle) { id = value; self.label = ShellStrings.setting(label, bundle: bundle) }
+    init(id: String, verbatimLabel: String) { self.id = id; self.label = verbatimLabel }
 }
 
 public enum SettingKind: Equatable, Sendable {
@@ -60,6 +108,8 @@ public struct SettingRow: Identifiable, Equatable, Sendable {
     public var enabled: Bool
     /// The value is the shell settings' choice, because the game has none of its own.
     public var fromShell: Bool
+    /// The value differs from the game profile's tested default (#453): the row draws a small dot before its label.
+    public var changed = false
     /// Label and note are texts of the game's launcher.json: shown in the player's language when the catalog has them.
     public init(id: String, label: String, note: String = "", kind: SettingKind, value: String, enabled: Bool = true, fromShell: Bool = false) {
         self.init(id: id, label: label, note: note, kind: kind, value: value, enabled: enabled, fromShell: fromShell, in: ShellStrings.bundle)
@@ -103,9 +153,12 @@ public struct GameDetail: Identifiable, Equatable, Sendable {
     public var cloudFromShell: Bool
     /// The shell settings have a cloud-saves folder this game does not use now, so the game can follow it.
     public var cloudCanUseShell: Bool
+    /// Readable timestamp label of the newest backup in `<appFolder>/save-backups/`, or nil when none exists.
+    public var latestSaveBackup: String?
     public init(game: GameTile, sections: [SettingSection] = [], dataSource: String = "", dataNote: String = "",
                 cloudSaves: String? = nil, cloudNote: String = "", dlc: String = "", hasModifiedSettings: Bool = false,
-                dataFromShell: Bool = false, cloudFromShell: Bool = false, cloudCanUseShell: Bool = false) {
+                dataFromShell: Bool = false, cloudFromShell: Bool = false, cloudCanUseShell: Bool = false,
+                latestSaveBackup: String? = nil) {
         self.game = game
         self.sections = sections
         self.dataSource = dataSource
@@ -117,6 +170,7 @@ public struct GameDetail: Identifiable, Equatable, Sendable {
         self.dataFromShell = dataFromShell
         self.cloudFromShell = cloudFromShell
         self.cloudCanUseShell = cloudCanUseShell
+        self.latestSaveBackup = latestSaveBackup
     }
 }
 
@@ -158,7 +212,8 @@ public enum InputDevice: Equatable, Sendable {
 
 /// One event from the host's input adapter: a press, or a button or direction let go. `sequence` orders them.
 public struct ShellInput: Equatable, Sendable {
-    public enum Action: Sendable { case up, down, left, right, activate, back, settings, controllers }
+    /// shellSettings: the shell's own settings (the gear), on the controller's Options button (#1129).
+    public enum Action: Sendable { case up, down, left, right, activate, back, settings, controllers, shellSettings }
     public var sequence: Int
     public var action: Action
     public var device: InputDevice
@@ -237,8 +292,14 @@ public struct ShellActions {
     public var onGlobalPadMapReset: () -> Void
     /// The button test opened (true) or closed: the host sends `PadSnapshot`s only in between.
     public var onButtonTest: (Bool) -> Void
+    /// Toggles `DM_PAD_MERGE` so every connected controller and touch controls drive player 1 together.
+    public var onPadMergeChange: (Bool) -> Void
+    /// Restores the newest backup in `<appFolder>/save-backups/` for `gameID` after backing up the current local save.
+    public var onRestoreSaveBackup: (String) -> Void
     /// Deletes the game's data on this device and takes it off the list. `saves`: its saves go too.
     public var onDeleteGame: (_ gameID: String, _ saves: Bool) -> Void
+    /// Opens the system Game Controller settings (or fallback app settings) to configure Home Button Override.
+    public var onOpenHomeButtonSettings: () -> Void
     public init(onSelect: @escaping (String) -> Void = { _ in }, onPlay: @escaping (String) -> Void = { _ in },
                 onChange: @escaping (String, String, String) -> Void = { _, _, _ in },
                 onPickGameData: @escaping (String) -> Void = { _ in }, onUseAppData: @escaping (String) -> Void = { _ in },
@@ -250,7 +311,10 @@ public struct ShellActions {
                 onClearShellCloud: @escaping () -> Void = {},
                 onGlobalPadMapChange: @escaping (String, String) -> Void = { _, _ in },
                 onGlobalPadMapReset: @escaping () -> Void = {}, onButtonTest: @escaping (Bool) -> Void = { _ in },
-                onDeleteGame: @escaping (String, Bool) -> Void = { _, _ in }) {
+                onPadMergeChange: @escaping (Bool) -> Void = { _ in },
+                onRestoreSaveBackup: @escaping (String) -> Void = { _ in },
+                onDeleteGame: @escaping (String, Bool) -> Void = { _, _ in },
+                onOpenHomeButtonSettings: @escaping () -> Void = {}) {
         self.onSelect = onSelect
         self.onPlay = onPlay
         self.onChange = onChange
@@ -270,6 +334,9 @@ public struct ShellActions {
         self.onGlobalPadMapChange = onGlobalPadMapChange
         self.onGlobalPadMapReset = onGlobalPadMapReset
         self.onButtonTest = onButtonTest
+        self.onPadMergeChange = onPadMergeChange
+        self.onRestoreSaveBackup = onRestoreSaveBackup
         self.onDeleteGame = onDeleteGame
+        self.onOpenHomeButtonSettings = onOpenHomeButtonSettings
     }
 }
