@@ -18,7 +18,7 @@ Issue: LNPANDY/NX2Apple#1143
 
 diff --git a/dm/ios/tests/test_bundle_id.py b/dm/ios/tests/test_bundle_id.py
 new file mode 100644
-index 0000000..75631a4
+index 00000000..75631a4b
 --- /dev/null
 +++ b/dm/ios/tests/test_bundle_id.py
 @@ -0,0 +1,350 @@
@@ -373,7 +373,7 @@ index 0000000..75631a4
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 756350a..896320f 100755
+index 756350af..896320fc 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -16,7 +16,7 @@
@@ -404,7 +404,7 @@ index 756350a..896320f 100755
  export DM_LANG=${DM_LANG:-en-US}
  export DM_FORK_PATCHES=$(paste -sd, "$DM/fork_patches.txt" 2>/dev/null || true)   # DMForkPatches in Info.plist (scripts/patches.py writes the list; empty on a build without fork patches)
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index b65b573..f39ea9f 100755
+index b65b5734..f39ea9fc 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -56,7 +56,7 @@ TITLE_ID = ''                           # the game to pack when the folder holds

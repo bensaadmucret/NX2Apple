@@ -13,7 +13,7 @@ Issue: LNPANDY/NX2Apple#280
  2 files changed, 36 insertions(+), 1 deletion(-)
 
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index f14b496..41c13c6 100644
+index f14b4963..41c13c66 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
 @@ -1516,6 +1516,12 @@ void front_run(void (*guest)(void)) {
@@ -67,7 +67,7 @@ index f14b496..41c13c6 100644
              [NSNotificationCenter.defaultCenter addObserverForName:nm object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
                  GCController *c = n.object; int conn = n.name == GCControllerDidConnectNotification;
 diff --git a/docs/reference/frame-rate.md b/docs/reference/frame-rate.md
-index 0ecc553..ea8033a 100644
+index 0ecc5531..ea8033ae 100644
 --- a/docs/reference/frame-rate.md
 +++ b/docs/reference/frame-rate.md
 @@ -422,6 +422,14 @@ Frame pacing: the host's frame step, engine frame limiters, present intervals an

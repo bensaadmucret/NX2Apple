@@ -20,14 +20,13 @@ and audio at 60 FPS in a window.
 Upstream-Status: forwarded seedds/nxnative#943
 Reason: A game importing EOS_Platform_Create directly crashed on a null EOS_HPlatform when its EOS module NRO was refused; the stub now answers a usable opaque platform handle and the EOS_Platform_Get*Interface stubs answer it (MARVEL Cosmic Invasion)
 Issue: LNPANDY/NX2Apple#1271
-
 ---
  dm/host/hle.c      |  4 ++++
  dm/host/hle_misc.c | 10 ++++++++++
  2 files changed, 14 insertions(+)
 
 diff --git a/dm/host/hle.c b/dm/host/hle.c
-index 50bd6e6..17af7e9 100644
+index 621a7d4e..84412542 100644
 --- a/dm/host/hle.c
 +++ b/dm/host/hle.c
 @@ -16,6 +16,10 @@ uint64_t unimpl_c(unsigned idx, uint64_t *regs) {
@@ -42,7 +41,7 @@ index 50bd6e6..17af7e9 100644
  }
  
 diff --git a/dm/host/hle_misc.c b/dm/host/hle_misc.c
-index f38ca60..5c97ee0 100644
+index a51d69b7..6943f5ab 100644
 --- a/dm/host/hle_misc.c
 +++ b/dm/host/hle_misc.c
 @@ -320,3 +320,13 @@ HLE_FORCE("_ZN2nn4chat28RequestNextRemoteCameraImageEPNS_2gs16NativeSyncHandleEP

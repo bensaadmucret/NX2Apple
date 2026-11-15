@@ -35,7 +35,7 @@ Issue: LNPANDY/NX2Apple#708
  create mode 100644 dm/tools/tests/test_nsp_romfs_reuse.py
 
 diff --git a/dm/mac/pack_app.py b/dm/mac/pack_app.py
-index 26288a6..dd90839 100755
+index 26288a69..dd908392 100755
 --- a/dm/mac/pack_app.py
 +++ b/dm/mac/pack_app.py
 @@ -296,7 +296,7 @@ def pack(a):
@@ -57,7 +57,7 @@ index 26288a6..dd90839 100755
      # The other programs: p<N>/ (RomFS, offline pages), msl/p<N>/<library>, dm/p<N>/ (modules, tables), and the table of them all, which the launcher makes DM_PROGRAMS (launcher.c, hle_oe.c): @R@ Resources, @C@ Contents, @S@ the app's Application Support folder
      if programs:
 diff --git a/dm/tools/tests/test_nsp_mac_app.py b/dm/tools/tests/test_nsp_mac_app.py
-index d46b7ff..6d2eca4 100644
+index d46b7ff9..6d2eca4e 100644
 --- a/dm/tools/tests/test_nsp_mac_app.py
 +++ b/dm/tools/tests/test_nsp_mac_app.py
 @@ -243,6 +243,18 @@ class PackReuse(unittest.TestCase):
@@ -81,7 +81,7 @@ index d46b7ff..6d2eca4 100644
          for name, value in [('name', 'New Game'), ('version', '2.0'), ('bundle_id', 'org.test.new'), ('category', 'public.app-category.action-games'),
 diff --git a/dm/tools/tests/test_nsp_romfs_reuse.py b/dm/tools/tests/test_nsp_romfs_reuse.py
 new file mode 100644
-index 0000000..400dbbc
+index 00000000..400dbbc3
 --- /dev/null
 +++ b/dm/tools/tests/test_nsp_romfs_reuse.py
 @@ -0,0 +1,146 @@
@@ -232,7 +232,7 @@ index 0000000..400dbbc
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 58b5b7d..ac4923f 100755
+index 58b5b7d7..ac4923fa 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -87,6 +87,7 @@ SURVEY_ONLY = False                     # a game with no profile in dm/games: on

@@ -38,7 +38,7 @@ Issue: LNPANDY/NX2Apple#392
 
 diff --git a/dm/ios/Sources/FrameworkBootstrap.h b/dm/ios/Sources/FrameworkBootstrap.h
 new file mode 100644
-index 0000000..a2049d4
+index 00000000..a2049d4d
 --- /dev/null
 +++ b/dm/ios/Sources/FrameworkBootstrap.h
 @@ -0,0 +1,25 @@
@@ -69,7 +69,7 @@ index 0000000..a2049d4
 +#endif
 diff --git a/dm/ios/Sources/FrameworkBootstrap.m b/dm/ios/Sources/FrameworkBootstrap.m
 new file mode 100644
-index 0000000..663ebe8
+index 00000000..663ebe8d
 --- /dev/null
 +++ b/dm/ios/Sources/FrameworkBootstrap.m
 @@ -0,0 +1,47 @@
@@ -121,7 +121,7 @@ index 0000000..663ebe8
 +}
 +#endif
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index 1b5c586..0560fdb 100644
+index 1b5c586d..0560fdb8 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
 @@ -183,6 +183,7 @@ - (void)startGame {
@@ -133,7 +133,7 @@ index 1b5c586..0560fdb 100644
      self.pad = dm_gamepad_view(self.view.bounds);
      self.pad.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
-index a16b19c..dd0b997 100644
+index a16b19c1..dd0b9975 100644
 --- a/dm/ios/Sources/main.m
 +++ b/dm/ios/Sources/main.m
 @@ -9,7 +9,6 @@
@@ -198,7 +198,7 @@ index a16b19c..dd0b997 100644
      // the app's shared <App>/msl (the program's <App>/msl/p<N> in a game of several programs).
 diff --git a/dm/ios/framework/DmGameMarker.m b/dm/ios/framework/DmGameMarker.m
 new file mode 100644
-index 0000000..c03357d
+index 00000000..c03357d4
 --- /dev/null
 +++ b/dm/ios/framework/DmGameMarker.m
 @@ -0,0 +1,10 @@
@@ -214,7 +214,7 @@ index 0000000..c03357d
 +const char dmgame_image_marker[] = "DmGame";
 diff --git a/dm/ios/framework/ShellGlue.h b/dm/ios/framework/ShellGlue.h
 new file mode 100644
-index 0000000..e5b52e2
+index 00000000..e5b52e21
 --- /dev/null
 +++ b/dm/ios/framework/ShellGlue.h
 @@ -0,0 +1,11 @@
@@ -231,7 +231,7 @@ index 0000000..e5b52e2
 +typedef void (*dm_glue_focus_fn)(int ev);
 diff --git a/dm/ios/framework/ShellGlue.m b/dm/ios/framework/ShellGlue.m
 new file mode 100644
-index 0000000..5ddd0e4
+index 00000000..5ddd0e4f
 --- /dev/null
 +++ b/dm/ios/framework/ShellGlue.m
 @@ -0,0 +1,77 @@
@@ -314,7 +314,7 @@ index 0000000..5ddd0e4
 +bool dm_show_launcher(void *view_controller, void (*done)(void)) { (void)view_controller; (void)done; return false; }
 diff --git a/dm/ios/project-framework.yml b/dm/ios/project-framework.yml
 new file mode 100644
-index 0000000..89a2df5
+index 00000000..89a2df5f
 --- /dev/null
 +++ b/dm/ios/project-framework.yml
 @@ -0,0 +1,200 @@
@@ -520,7 +520,7 @@ index 0000000..89a2df5
 +      config: Release
 diff --git a/dm/ios/tests/test_bc_device_check.py b/dm/ios/tests/test_bc_device_check.py
 new file mode 100644
-index 0000000..6c443e5
+index 00000000..6c443e5b
 --- /dev/null
 +++ b/dm/ios/tests/test_bc_device_check.py
 @@ -0,0 +1,56 @@
@@ -582,7 +582,7 @@ index 0000000..6c443e5
 +    unittest.main()
 diff --git a/dm/ios/tests/test_framework_build.py b/dm/ios/tests/test_framework_build.py
 new file mode 100644
-index 0000000..f1c8992
+index 00000000..f1c89929
 --- /dev/null
 +++ b/dm/ios/tests/test_framework_build.py
 @@ -0,0 +1,323 @@
@@ -911,7 +911,7 @@ index 0000000..f1c8992
 +    unittest.main()
 diff --git a/dm/ios/tests/test_framework_link.py b/dm/ios/tests/test_framework_link.py
 new file mode 100644
-index 0000000..5c6d3d0
+index 00000000..5c6d3d03
 --- /dev/null
 +++ b/dm/ios/tests/test_framework_link.py
 @@ -0,0 +1,191 @@
@@ -1107,7 +1107,7 @@ index 0000000..5c6d3d0
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/dm/ios/tests/test_xcode_workflow.py b/dm/ios/tests/test_xcode_workflow.py
-index 58ff09d..06bbc7a 100644
+index 58ff09dd..06bbc7ad 100644
 --- a/dm/ios/tests/test_xcode_workflow.py
 +++ b/dm/ios/tests/test_xcode_workflow.py
 @@ -30,7 +30,12 @@ class XcodePipelineTests(unittest.TestCase):
@@ -1143,7 +1143,7 @@ index 58ff09d..06bbc7a 100644
              register.assert_called_once()
              self.assertEqual(mocks['derive_profile'].call_count, int(derived))
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 455bcfd..96a903f 100755
+index 455bcfd7..96a903f6 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -8,6 +8,12 @@
@@ -1296,7 +1296,7 @@ index 455bcfd..96a903f 100755
  # the entitlements of the signature they replace; the Xcode project gets them through CODE_SIGN_ENTITLEMENTS, above). The executable gets an ad-hoc signature that carries them: the sideloader
  # replaces the signature and keeps the entitlements. Only the executable is signed: the bundle's resources are packed from elsewhere and the signature is replaced anyway
 diff --git a/dm/ios/tools/compile_check.py b/dm/ios/tools/compile_check.py
-index 4925cc6..b832115 100755
+index 4925cc60..b832115e 100755
 --- a/dm/ios/tools/compile_check.py
 +++ b/dm/ios/tools/compile_check.py
 @@ -4,7 +4,9 @@
@@ -1338,7 +1338,7 @@ index 4925cc6..b832115 100755
  sys.exit(1 if bad else 0)
 diff --git a/dm/ios/tools/gen_manifest.py b/dm/ios/tools/gen_manifest.py
 new file mode 100644
-index 0000000..963156f
+index 00000000..963156fd
 --- /dev/null
 +++ b/dm/ios/tools/gen_manifest.py
 @@ -0,0 +1,130 @@
@@ -1473,7 +1473,7 @@ index 0000000..963156f
 +if __name__ == '__main__':
 +    main()
 diff --git a/dm/tools/tests/test_nsp_progress.py b/dm/tools/tests/test_nsp_progress.py
-index cd34db9..7a7fbfe 100644
+index cd34db90..7a7fbfe9 100644
 --- a/dm/tools/tests/test_nsp_progress.py
 +++ b/dm/tools/tests/test_nsp_progress.py
 @@ -236,5 +236,334 @@ class HumanModes(unittest.TestCase):
@@ -1812,7 +1812,7 @@ index cd34db9..7a7fbfe 100644
  if __name__ == '__main__':
      unittest.main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index d49c5da..b65b573 100755
+index d49c5da1..b65b5734 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -616,6 +616,41 @@ def nxb_split(roms, mains, tmp, names, logs, g):

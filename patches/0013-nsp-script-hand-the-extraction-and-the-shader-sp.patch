@@ -38,7 +38,7 @@ Issue: LNPANDY/NX2Apple#749
 
 diff --git a/dm/tools/tests/test_nsp_experimental_builder.py b/dm/tools/tests/test_nsp_experimental_builder.py
 new file mode 100644
-index 0000000..444e186
+index 00000000..444e1864
 --- /dev/null
 +++ b/dm/tools/tests/test_nsp_experimental_builder.py
 @@ -0,0 +1,211 @@
@@ -254,7 +254,7 @@ index 0000000..444e186
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 08a8422..aaf0ece 100755
+index 08a8422c..aaf0ece7 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -33,6 +33,7 @@

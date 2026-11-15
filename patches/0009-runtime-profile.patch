@@ -43,7 +43,7 @@ Issue: LNPANDY/NX2Apple#226
  create mode 100644 dm/tools/tests/test_game_profile_runtime.py
 
 diff --git a/dm/games/game.py b/dm/games/game.py
-index 5b8ae81..2c4804e 100644
+index 5b8ae814..2c4804ed 100644
 --- a/dm/games/game.py
 +++ b/dm/games/game.py
 @@ -276,6 +276,43 @@ if __name__ == '__main__':
@@ -91,7 +91,7 @@ index 5b8ae81..2c4804e 100644
          print(load(a[1]).dir)
      elif len(a) == 3 and a[0] == 'link':   # link → the profile folder (replaced when it points elsewhere)
 diff --git a/dm/gfx/nvn/hle_nvn.c b/dm/gfx/nvn/hle_nvn.c
-index 69aa7de..285a18c 100644
+index 69aa7ded..285a18c5 100644
 --- a/dm/gfx/nvn/hle_nvn.c
 +++ b/dm/gfx/nvn/hle_nvn.c
 @@ -200,16 +200,14 @@ __attribute__((weak)) int dm_sdk_ounce(void) { return 0; }
@@ -240,7 +240,7 @@ index 69aa7de..285a18c 100644
      if (o->vmode == 2) LOG("[nvn] virtual pool %p (%#llx bytes, flags %#x): sparse, own address range %p+%#llx, physical pages are remapped into it", (const void *)o, (unsigned long long)o->size, o->flags, a, (unsigned long long)len);
      return a;
 diff --git a/dm/gfx/nvn/nvn_capture.h b/dm/gfx/nvn/nvn_capture.h
-index 682cbb8..1518f92 100644
+index 682cbb8d..1518f924 100644
 --- a/dm/gfx/nvn/nvn_capture.h
 +++ b/dm/gfx/nvn/nvn_capture.h
 @@ -70,7 +70,7 @@ typedef struct { uint32_t index; int32_t n; uint64_t pool; int64_t off; int32_t
@@ -253,7 +253,7 @@ index 682cbb8..1518f92 100644
  typedef struct { tex_t t; uint32_t kind, pad; } cap_tknd;   // t: relocated
  typedef struct { tex_t t; uint32_t pixfmt, type, width, height, depth, levels, slices, samples, nsub, pad; } cap_tpix;   // t: relocated, the texture to create and fill
 diff --git a/dm/gfx/nvn/nvn_capture.inc b/dm/gfx/nvn/nvn_capture.inc
-index 94d4fc1..216dce6 100644
+index 94d4fc1b..216dce66 100644
 --- a/dm/gfx/nvn/nvn_capture.inc
 +++ b/dm/gfx/nvn/nvn_capture.inc
 @@ -341,7 +341,7 @@ static void cap_head(void) {
@@ -266,7 +266,7 @@ index 94d4fc1..216dce6 100644
      for (char **e = *_NSGetEnviron(); *e; e++) if (!strncmp(*e, "DM_", 3) && strncmp(*e, "DM_NVN_CAPTURE=", 15)) KV("env\t%s\n", *e);
  #undef KV
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 81e6125..1f4f129 100644
+index 81e6125c..1f4f129d 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
 @@ -1634,7 +1634,7 @@ static inline void m4_end(id e) {
@@ -354,7 +354,7 @@ index 81e6125..1f4f129 100644
  }
  static void snap_commit_wait(uint64_t v) { if (v) rec_note_wait(&g_snap_cmt, v); }
 diff --git a/dm/gfx/nvn/nvn_rec.h b/dm/gfx/nvn/nvn_rec.h
-index f7c0097..fc8bec3 100644
+index f7c0097d..fc8bec3b 100644
 --- a/dm/gfx/nvn/nvn_rec.h
 +++ b/dm/gfx/nvn/nvn_rec.h
 @@ -106,7 +106,7 @@ static inline int rec_on(void) {
@@ -367,7 +367,7 @@ index f7c0097..fc8bec3 100644
      if (g_rec) MLOG("Metal encoding runs on its own thread (DM_NVN_ENC_THREAD=0 turns it off)");
      return g_rec;
 diff --git a/dm/gfx/tests/t_host_stubs.c b/dm/gfx/tests/t_host_stubs.c
-index 2e79f45..05bfee1 100644
+index 2e79f451..05bfee14 100644
 --- a/dm/gfx/tests/t_host_stubs.c
 +++ b/dm/gfx/tests/t_host_stubs.c
 @@ -7,3 +7,5 @@ int g_shape_w, g_shape_h; void front_picture_shape(int w, int h) { g_shape_w = w
@@ -377,7 +377,7 @@ index 2e79f45..05bfee1 100644
 +// The runtime profile the NVN layer reads (dm_profile in hle_profile.c): no DM_PROFILE in a test, so these are the compiled game_profile.h values
 +#include "../../host/hle_profile.c"
 diff --git a/dm/host/dm.h b/dm/host/dm.h
-index f747eb0..eddb8e6 100644
+index f747eb00..eddb8e67 100644
 --- a/dm/host/dm.h
 +++ b/dm/host/dm.h
 @@ -7,6 +7,7 @@
@@ -389,7 +389,7 @@ index f747eb0..eddb8e6 100644
  // Explicit host work does not occupy a guest core (Metal submission, or a blocked native codec lock). A contended host mutex must count as blocked: a signal's same-core handoff
  // can otherwise wait forever for a peer that needs the signaller's native lock. Uncontended locks retain guest ordering; the counter nests inside existing host work.
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index a1fc7ef..f14b496 100644
+index a1fc7ef0..f14b4963 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
 @@ -1136,7 +1136,7 @@ - (BOOL)control:(NSControl *)c textView:(NSTextView *)tv doCommandBySelector:(SE
@@ -429,7 +429,7 @@ index a1fc7ef..f14b496 100644
          g_cheats_menu = [DmCheatsMenuDelegate new];
          NSMenu *cm = [[NSMenu alloc] initWithTitle:@"Cheats"];
 diff --git a/dm/host/hle_cheats.c b/dm/host/hle_cheats.c
-index 41ddc08..b728052 100644
+index 41ddc08f..b728052e 100644
 --- a/dm/host/hle_cheats.c
 +++ b/dm/host/hle_cheats.c
 @@ -129,7 +129,7 @@ static char g_dir[1024];       // cheats folder (DM_CHEATS or <DM_ROOT>/cheats),
@@ -465,7 +465,7 @@ index 41ddc08..b728052 100644
      // match itself is case-insensitive (name_is_build lower-cases both sides)
      const char *bid = dm_main_build();
 diff --git a/dm/host/hle_fpslock.c b/dm/host/hle_fpslock.c
-index ff2e781..0137ad0 100644
+index ff2e7816..0137ad0e 100644
 --- a/dm/host/hle_fpslock.c
 +++ b/dm/host/hle_fpslock.c
 @@ -257,7 +257,7 @@ void dm_fps_lock_tick(void) {
@@ -478,7 +478,7 @@ index ff2e781..0137ad0 100644
          if (t == 120 && DM_GAME_FPS_MAX < 120) { LOG("[RED] DM_FPS_TARGET=120: this game's speed at 120 fps is not checked (profile fps_max); running at 60"); t = 60; }
          high = t == 120;
 diff --git a/dm/host/hle_fs.c b/dm/host/hle_fs.c
-index 70c6f70..78b5d74 100644
+index 70c6f70d..78b5d745 100644
 --- a/dm/host/hle_fs.c
 +++ b/dm/host/hle_fs.c
 @@ -872,7 +872,7 @@ HLE_FORCE("_ZN2nn2fs14ExtendSaveDataERKNS_7account3UidEll", "fsp-srv; extend sav
@@ -513,7 +513,7 @@ index 70c6f70..78b5d74 100644
      (void)uid;
      // No default directory: silently landing on a directory with no characters distorts the "character select" measurement (this once caused a misjudgment). Runs always use a fresh copy of save_ref
 diff --git a/dm/host/hle_oe.c b/dm/host/hle_oe.c
-index eb3bd2c..b29c947 100644
+index eb3bd2c2..b29c947a 100644
 --- a/dm/host/hle_oe.c
 +++ b/dm/host/hle_oe.c
 @@ -16,7 +16,7 @@
@@ -562,7 +562,7 @@ index eb3bd2c..b29c947 100644
  // the default display resolution is the TV's (1080p docked) or the panel's (720p handheld) and only changes with the operation mode
  // Taiko Risshiden V DX (SDK 12.3.3) turns it on in nnMain (main+0x2e1e4c): the setter goes through the same apm session (null read at sdk+0x362b8). The host does not scale clocks;
 diff --git a/dm/host/hle_os.c b/dm/host/hle_os.c
-index 980be14..830ca90 100644
+index 980be14d..830ca903 100644
 --- a/dm/host/hle_os.c
 +++ b/dm/host/hle_os.c
 @@ -134,7 +134,7 @@ HLE_FORCE("_ZN2nn6crypto36GenerateCryptographicallyRandomBytesEPvm", "csrng serv
@@ -585,7 +585,7 @@ index 980be14..830ca90 100644
  HLE_FORCE("_ZN2nn3mem17StandardAllocator8AllocateEm", "passed straight to the SDK; with the profile's alloc_big_align (13 Sentinels, Unicorn Overlord) allocations ≥ 64 KB are 64 KB aligned (memory pool start)", void *, h_mem_SAAllocate, void *self, size_t size) {
 diff --git a/dm/host/hle_profile.c b/dm/host/hle_profile.c
 new file mode 100644
-index 0000000..c141b04
+index 00000000..c141b049
 --- /dev/null
 +++ b/dm/host/hle_profile.c
 @@ -0,0 +1,312 @@
@@ -903,7 +903,7 @@ index 0000000..c141b04
 +}
 diff --git a/dm/host/hle_profile.h b/dm/host/hle_profile.h
 new file mode 100644
-index 0000000..e73d416
+index 00000000..e73d4164
 --- /dev/null
 +++ b/dm/host/hle_profile.h
 @@ -0,0 +1,48 @@
@@ -956,7 +956,7 @@ index 0000000..e73d416
 +    return p;
 +}                   // one line per differing value (called after loading)
 diff --git a/dm/host/hle_sdk16.c b/dm/host/hle_sdk16.c
-index 5bf292f..9c194d9 100644
+index 5bf292fb..9c194d99 100644
 --- a/dm/host/hle_sdk16.c
 +++ b/dm/host/hle_sdk16.c
 @@ -14,10 +14,10 @@
@@ -993,7 +993,7 @@ index 5bf292f..9c194d9 100644
      return (size_t)skip;
  }
 diff --git a/dm/host/hle_svc.c b/dm/host/hle_svc.c
-index b3eb7c3..64fb7d8 100644
+index b3eb7c36..64fb7d85 100644
 --- a/dm/host/hle_svc.c
 +++ b/dm/host/hle_svc.c
 @@ -26,7 +26,7 @@
@@ -1124,7 +1124,7 @@ index b3eb7c3..64fb7d8 100644
          // nn::os::GetFreeThreadCount (SDK 11+): the thread resource limit less the threads alive, as the kernel answers it (Atmosphère kern_svc_info.cpp). pm gives an application a limit of
          // 96 threads (pm_spec.cpp BaseApplicationThreads; a boost raises it to 256). Monster Train 2's Unity 2022.3 player creates a thread only when this is at least 1: the 0 it got here
 diff --git a/dm/host/hle_thread.c b/dm/host/hle_thread.c
-index ab45c5a..f69ba1a 100644
+index ab45c5aa..f69ba1ad 100644
 --- a/dm/host/hle_thread.c
 +++ b/dm/host/hle_thread.c
 @@ -546,7 +546,7 @@ static void hitch_init(void) {
@@ -1137,7 +1137,7 @@ index ab45c5a..f69ba1a 100644
      hitch_init();
      thr_t *t = calloc(1, sizeof *t);
 diff --git a/dm/host/hle_uecvar.c b/dm/host/hle_uecvar.c
-index e575d5f..cffd142 100644
+index e575d5f1..cffd142a 100644
 --- a/dm/host/hle_uecvar.c
 +++ b/dm/host/hle_uecvar.c
 @@ -24,8 +24,8 @@ void dm_ue_cvar_tick(void) {
@@ -1152,7 +1152,7 @@ index e575d5f..cffd142 100644
          if (!obj_off) { LOG("[RED] main: Unreal r.Streaming.PoolSize not found in main by the rewriter (ue_cvar.py; %s %d MB not applied)", src, target); return; }
          LOG("main: Unreal r.Streaming.PoolSize at main+%#llx, raised to %d MB (%s)", (unsigned long long)obj_off, target, src);
 diff --git a/dm/host/loader.c b/dm/host/loader.c
-index ce63ce7..0c2a3cb 100644
+index ce63ce79..0c2a3cba 100644
 --- a/dm/host/loader.c
 +++ b/dm/host/loader.c
 @@ -318,7 +318,7 @@ static void install_fps_state(module_t *m) {
@@ -1165,7 +1165,7 @@ index ce63ce7..0c2a3cb 100644
      float f = (float)t; memcpy(dm_fps_state, &f, sizeof f);
      // Render scale of the 3D views (the stubs at Tears of the Kingdom's main+0xd5cc0, Breath of the Wild's main+0x1266880, Hades II's render size): 1.0 keeps the game's own size
 diff --git a/dm/host/main.c b/dm/host/main.c
-index 1c5387b..105cb09 100644
+index 1c5387b2..105cb09d 100644
 --- a/dm/host/main.c
 +++ b/dm/host/main.c
 @@ -115,7 +115,8 @@ static void host_preload(int argc, char **argv) {
@@ -1205,7 +1205,7 @@ index 1c5387b..105cb09 100644
      dm_cheats_init();   // the Atmosphère cheat files for this build (hle_cheats.c): picked by first 16 hex digits of main's build ID, which the loader knows now
      dm_sdk_major();   // logs the SDK version, which SDK-dependent behaviour follows (loader.c)
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 0e3f2e7..887d292 100644
+index 0e3f2e7f..887d292f 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
 @@ -12,7 +12,7 @@ QUIET = $(if $(findstring -fsanitize,$(SAN)),,2>/dev/null)
@@ -1446,7 +1446,7 @@ index 0e3f2e7..887d292 100644
 +	TMPDIR="$(abspath $(B))" $(B)/t_profile_runtime
 diff --git a/dm/host/tests/t_layout_runtime.c b/dm/host/tests/t_layout_runtime.c
 new file mode 100644
-index 0000000..20b210d
+index 00000000..20b210d4
 --- /dev/null
 +++ b/dm/host/tests/t_layout_runtime.c
 @@ -0,0 +1,103 @@
@@ -1555,7 +1555,7 @@ index 0000000..20b210d
 +}
 diff --git a/dm/host/tests/t_profile_runtime.c b/dm/host/tests/t_profile_runtime.c
 new file mode 100644
-index 0000000..bbf0e32
+index 00000000..bbf0e321
 --- /dev/null
 +++ b/dm/host/tests/t_profile_runtime.c
 @@ -0,0 +1,100 @@
@@ -1660,7 +1660,7 @@ index 0000000..bbf0e32
 +    return bad ? 1 : 0;
 +}
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 1f2040e..46a33d5 100644
+index 1f2040e7..46a33d5d 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -218,7 +218,7 @@ - (instancetype)initWithFrame:(CGRect)f {
@@ -1674,7 +1674,7 @@ index 1f2040e..46a33d5 100644
          [self applyLayout];
 diff --git a/dm/tools/tests/test_game_profile_runtime.py b/dm/tools/tests/test_game_profile_runtime.py
 new file mode 100644
-index 0000000..a724f94
+index 00000000..a724f94e
 --- /dev/null
 +++ b/dm/tools/tests/test_game_profile_runtime.py
 @@ -0,0 +1,55 @@

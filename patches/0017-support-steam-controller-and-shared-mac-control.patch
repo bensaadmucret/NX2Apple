@@ -61,7 +61,7 @@ Issue: seedds/nxnative#221
  create mode 100644 docs/mac-controllers.md
 
 diff --git a/dm/games/0100F2C0115B6000/README.md b/dm/games/0100F2C0115B6000/README.md
-index 1482b0a..adb0424 100644
+index 1482b0ac..adb04248 100644
 --- a/dm/games/0100F2C0115B6000/README.md
 +++ b/dm/games/0100F2C0115B6000/README.md
 @@ -66,6 +66,8 @@ Game-specific findings. The general host changes they led to are listed under [F
@@ -85,7 +85,7 @@ index 1482b0a..adb0424 100644
  
  - **Resolved in the host (#342): recurring startup crash during archive compaction**, with a workaround for Metal's serializer defect: [Pipeline archive compaction crashes in Metal's serializer](../../../docs/reference/shaders.md#a-compaction-flush-that-crashes-then-crashes-every-start). Confirmed with local manifest replays; no new gameplay or iOS validation.
 diff --git a/dm/host/Makefile b/dm/host/Makefile
-index 0959180..b1ef48b 100644
+index 09591801..b1ef48b1 100644
 --- a/dm/host/Makefile
 +++ b/dm/host/Makefile
 @@ -22,7 +22,7 @@ include ../mac/min_os.mk
@@ -108,7 +108,7 @@ index 0959180..b1ef48b 100644
  	rm -rf gen dmhost dmhost_* *.dSYM
 diff --git a/dm/host/controllers_mac.h b/dm/host/controllers_mac.h
 new file mode 100644
-index 0000000..bd852c4
+index 00000000..bd852c4e
 --- /dev/null
 +++ b/dm/host/controllers_mac.h
 @@ -0,0 +1,27 @@
@@ -141,7 +141,7 @@ index 0000000..bd852c4
 +int front_cp_poll(void);
 diff --git a/dm/host/controllers_mac.m b/dm/host/controllers_mac.m
 new file mode 100644
-index 0000000..773d348
+index 00000000..773d3481
 --- /dev/null
 +++ b/dm/host/controllers_mac.m
 @@ -0,0 +1,1210 @@
@@ -1356,7 +1356,7 @@ index 0000000..773d348
 +        [NSNotificationCenter.defaultCenter addObserverForName:name object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) { front_controllers_focus([n.name isEqual:NSApplicationDidBecomeActiveNotification]); }];
 +}
 diff --git a/dm/host/dm_input.h b/dm/host/dm_input.h
-index ab2c807..3f7cef8 100644
+index ab2c8074..3f7cef8f 100644
 --- a/dm/host/dm_input.h
 +++ b/dm/host/dm_input.h
 @@ -21,7 +21,7 @@ uint64_t dm_input_samples(void);   // Cumulative number of times the game has sa
@@ -1380,7 +1380,7 @@ index ab2c807..3f7cef8 100644
  // Optional diagnostic DM_HID_RECEIPT_LOG=<writable JSONL path>: received samples of real GetNpadState returns.
  // Fields read_start_ns/time_ns use the same host now_ns(); the front-end publish window must use the same helper, and a read interval that spans a publish must not be force-matched.
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index 5ac5c2e..052f230 100644
+index 5ac5c2e8..052f230e 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
 @@ -7,7 +7,7 @@
@@ -2135,7 +2135,7 @@ index 5ac5c2e..052f230 100644
      if (!r) return 0;
      (void)max_chars;                              // Truncation is done uniformly in hle_swkbd.c in UTF-16 units
 diff --git a/dm/host/haptics_apple.h b/dm/host/haptics_apple.h
-index 6c54cdc..b41a2bb 100644
+index 6c54cdc0..b41a2bb6 100644
 --- a/dm/host/haptics_apple.h
 +++ b/dm/host/haptics_apple.h
 @@ -8,4 +8,14 @@ void dm_haptics_apple_controller(int player, GCController *controller);
@@ -2154,7 +2154,7 @@ index 6c54cdc..b41a2bb 100644
 +// Mac game-window/modal gate, independent of application activation.
 +void dm_haptics_apple_focus(int active);
 diff --git a/dm/host/haptics_apple.m b/dm/host/haptics_apple.m
-index 6a02108..dbf82d0 100644
+index 6a02108d..dbf82d05 100644
 --- a/dm/host/haptics_apple.m
 +++ b/dm/host/haptics_apple.m
 @@ -40,6 +40,9 @@ - (void)stop;
@@ -2270,7 +2270,7 @@ index 6a02108..dbf82d0 100644
      if (queue) suspend(DM_HAPTICS_INACTIVE, YES);
  }
 diff --git a/dm/host/hle_haptics.h b/dm/host/hle_haptics.h
-index d808df0..3fb623b 100644
+index d808df0d..3fb623bf 100644
 --- a/dm/host/hle_haptics.h
 +++ b/dm/host/hle_haptics.h
 @@ -6,7 +6,7 @@ typedef struct { float amplitude_low, frequency_low, amplitude_high, frequency_h
@@ -2283,7 +2283,7 @@ index d808df0..3fb623b 100644
  // The sink copies/enqueues each snapshot in order; called under the state lock, it must not reenter.
  // No hardware calls on the sending thread. A changed epoch invalidates all older queued snapshots.
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index 2f89b40..bbf2c47 100644
+index 2f89b40d..bbf2c474 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
 @@ -3,7 +3,7 @@
@@ -2646,7 +2646,7 @@ index 2f89b40..bbf2c47 100644
  HLE_FORCE("_ZN2nn3hid28InitializeSevenSixAxisSensorEPvm", "console six-axis sensor initialization; not provided by the host", Result, h_hid_SevenInit, void *buf, size_t n) { (void)buf; (void)n; return RES_OK; }
  HLE_FORCE("_ZN2nn3hid26FinalizeSevenSixAxisSensorEv", "console six-axis sensor", Result, h_hid_SevenFini, void) { return RES_OK; }
 diff --git a/dm/host/home_quit.h b/dm/host/home_quit.h
-index 64b6b9d..ddab115 100644
+index 64b6b9de..ddab1156 100644
 --- a/dm/host/home_quit.h
 +++ b/dm/host/home_quit.h
 @@ -1,9 +1,9 @@
@@ -2662,7 +2662,7 @@ index 64b6b9d..ddab115 100644
  // Games app or the player's chosen app), the game window loses the focus and whatever was shown closes (hq_cancel). DM_HOME_QUIT=0 turns it off. A front end passes the
  // texts in the player's language as DM_HOME_QUIT_TEXT (hq_text_line, docs/frontends.md), English otherwise.
 diff --git a/dm/host/input_map.h b/dm/host/input_map.h
-index 56fa499..64419ad 100644
+index 56fa4993..64419adc 100644
 --- a/dm/host/input_map.h
 +++ b/dm/host/input_map.h
 @@ -1,10 +1,11 @@
@@ -2745,7 +2745,7 @@ index 56fa499..64419ad 100644
      uint64_t out = btn & ~0xffffull;
 diff --git a/dm/host/input_preferences_mac.h b/dm/host/input_preferences_mac.h
 new file mode 100644
-index 0000000..b3a2dee
+index 00000000..b3a2deef
 --- /dev/null
 +++ b/dm/host/input_preferences_mac.h
 @@ -0,0 +1,47 @@
@@ -2797,7 +2797,7 @@ index 0000000..b3a2dee
 +    return value;
 +}
 diff --git a/dm/host/pad_hid_mac.h b/dm/host/pad_hid_mac.h
-index 3df247c..8191137 100644
+index 3df247c5..81911379 100644
 --- a/dm/host/pad_hid_mac.h
 +++ b/dm/host/pad_hid_mac.h
 @@ -1,6 +1,6 @@
@@ -3027,7 +3027,7 @@ index 3df247c..8191137 100644
          IOHIDManagerUnscheduleFromRunLoop(g_hidpad_manager, CFRunLoopGetMain(), kCFRunLoopCommonModes);
 diff --git a/dm/host/pad_map.h b/dm/host/pad_map.h
 new file mode 100644
-index 0000000..2f482e5
+index 00000000..2f482e5c
 --- /dev/null
 +++ b/dm/host/pad_map.h
 @@ -0,0 +1,17 @@
@@ -3050,7 +3050,7 @@ index 0000000..2f482e5
 +}
 diff --git a/dm/host/pad_motion.h b/dm/host/pad_motion.h
 new file mode 100644
-index 0000000..27b19e2
+index 00000000..27b19e26
 --- /dev/null
 +++ b/dm/host/pad_motion.h
 @@ -0,0 +1,36 @@
@@ -3092,7 +3092,7 @@ index 0000000..27b19e2
 +}
 diff --git a/dm/host/steam_input.h b/dm/host/steam_input.h
 new file mode 100644
-index 0000000..a252573
+index 00000000..a2525732
 --- /dev/null
 +++ b/dm/host/steam_input.h
 @@ -0,0 +1,97 @@
@@ -3194,7 +3194,7 @@ index 0000000..a252573
 +    memset(out, 0, 64); out[0] = 1; out[1] = 0x87; out[2] = 3; out[3] = 48; out[4] = enabled ? 0x18 : 0;
 +}
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 40bc208..d4d7c4c 100644
+index 40bc2088..d4d7c4c0 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
 @@ -82,6 +82,9 @@ run: $(B)/t_mii $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_siz
@@ -3221,7 +3221,7 @@ index 40bc208..d4d7c4c 100644
 +	$(CLANG) $(GINC) -O1 -fobjc-arc -Wall -Werror -Wno-unused-function -o $@ t_controllers_mac.m -framework Cocoa -framework GameController -framework IOKit
 diff --git a/dm/host/tests/t_controllers_mac.m b/dm/host/tests/t_controllers_mac.m
 new file mode 100644
-index 0000000..42c55c1
+index 00000000..42c55c10
 --- /dev/null
 +++ b/dm/host/tests/t_controllers_mac.m
 @@ -0,0 +1,1123 @@
@@ -4349,7 +4349,7 @@ index 0000000..42c55c1
 +    }
 +}
 diff --git a/dm/host/tests/t_haptics_apple.m b/dm/host/tests/t_haptics_apple.m
-index 490e243..2243e38 100644
+index 490e2439..2243e380 100644
 --- a/dm/host/tests/t_haptics_apple.m
 +++ b/dm/host/tests/t_haptics_apple.m
 @@ -100,7 +100,7 @@ @interface TestEngine : NSObject
@@ -4431,7 +4431,7 @@ index 490e243..2243e38 100644
      assert(ds4_crc((const uint8_t *)"123456789", 9) == 0xCBF43926u);   // the report's CRC32 (IEEE, reflected)
      dm_haptics_apple_shutdown();
 diff --git a/dm/host/tests/t_hid.c b/dm/host/tests/t_hid.c
-index 7f9817c..4bb7d0e 100644
+index 7f9817cb..4bb7d0e9 100644
 --- a/dm/host/tests/t_hid.c
 +++ b/dm/host/tests/t_hid.c
 @@ -31,6 +31,8 @@ uint64_t guest_ns(void) { return guest_now; }
@@ -4764,7 +4764,7 @@ index 7f9817c..4bb7d0e 100644
      return fails != 0;
  }
 diff --git a/dm/host/tests/t_input_map.c b/dm/host/tests/t_input_map.c
-index 96736ad..8ea0ab7 100644
+index 96736ad6..8ea0ab70 100644
 --- a/dm/host/tests/t_input_map.c
 +++ b/dm/host/tests/t_input_map.c
 @@ -28,6 +28,29 @@ int main(void) {
@@ -4817,7 +4817,7 @@ index 96736ad..8ea0ab7 100644
      return fails != 0;
  }
 diff --git a/dm/host/tests/t_pad_hid_mac.m b/dm/host/tests/t_pad_hid_mac.m
-index 80b58e6..07b4768 100644
+index 80b58e6a..07b47682 100644
 --- a/dm/host/tests/t_pad_hid_mac.m
 +++ b/dm/host/tests/t_pad_hid_mac.m
 @@ -42,6 +42,8 @@ static void test_report_cb(IOHIDDeviceRef device, uint8_t *buffer, CFIndex len,
@@ -4847,7 +4847,7 @@ index 80b58e6..07b4768 100644
  static void hidpad_read(hid_pad *d) { (void)d; }
 diff --git a/dm/host/tests/t_pad_map.c b/dm/host/tests/t_pad_map.c
 new file mode 100644
-index 0000000..6035d6e
+index 00000000..6035d6ed
 --- /dev/null
 +++ b/dm/host/tests/t_pad_map.c
 @@ -0,0 +1,104 @@
@@ -4957,7 +4957,7 @@ index 0000000..6035d6e
 +}
 diff --git a/dm/host/tests/t_pad_motion.c b/dm/host/tests/t_pad_motion.c
 new file mode 100644
-index 0000000..f785cf0
+index 00000000..f785cf02
 --- /dev/null
 +++ b/dm/host/tests/t_pad_motion.c
 @@ -0,0 +1,19 @@
@@ -4981,7 +4981,7 @@ index 0000000..f785cf0
 +    puts("motion timestamp wrap, units, orientation and stale-gap handling: OK");
 +}
 diff --git a/dm/mac/launcher.c b/dm/mac/launcher.c
-index 1596b2d..2575a8f 100644
+index 1596b2d4..2575a8f9 100644
 --- a/dm/mac/launcher.c
 +++ b/dm/mac/launcher.c
 @@ -6,6 +6,8 @@
@@ -5058,7 +5058,7 @@ index 1596b2d..2575a8f 100644
      setenv("DM_ROOT", sup, 0); setenv("DM_ROMFS", romfs, 0); setenv("DM_TEMP", temp, 0);
      snprintf(p, sizeof p, "%s/Library/Application Support/nxnative/system", home); setenv("DM_SYSTEM_DIR", p, 0);   // the player's own console files, for every game
 diff --git a/dm/mac/pack_app.py b/dm/mac/pack_app.py
-index 9a0dd61..26288a6 100755
+index 9a0dd616..26288a69 100755
 --- a/dm/mac/pack_app.py
 +++ b/dm/mac/pack_app.py
 @@ -131,7 +131,7 @@ def info_plist(a, minos, icon):
@@ -5080,7 +5080,7 @@ index 9a0dd61..26288a6 100755
                    'trees': [(p, inventory(Path(p))) for p in (a.romfs, a.aoc, a.html, *(str(x[1]) for x in programs), *(str(x[3]) for x in programs)) if p and Path(p).exists()],
                    'tools': [[str(c), c.stat().st_mode, c.stat().st_size, c.stat().st_mtime_ns, c.stat().st_ctime_ns, run([c, '--version']).strip()] for c in (clang, swiftc)] + [
 diff --git a/dm/tools/impact_map.tsv b/dm/tools/impact_map.tsv
-index c128bf3..41dfa02 100644
+index c128bf3d..41dfa020 100644
 --- a/dm/tools/impact_map.tsv
 +++ b/dm/tools/impact_map.tsv
 @@ -150,6 +150,15 @@ dm/host/motion_pro_mac.h	hle:*SixAxisSensor*	Mac Pro Controller raw motion trans
@@ -5100,7 +5100,7 @@ index c128bf3..41dfa02 100644
  dm/ios/*	*:*	the iOS app
  dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Translation/ResourceReservations.cs	shader:stage:gs	geometry compute varying slots
 diff --git a/dm/tools/tests/test_nsp_mac_app.py b/dm/tools/tests/test_nsp_mac_app.py
-index b576728..d46b7ff 100644
+index b5767285..d46b7ff9 100644
 --- a/dm/tools/tests/test_nsp_mac_app.py
 +++ b/dm/tools/tests/test_nsp_mac_app.py
 @@ -120,7 +120,7 @@ class PackReuse(unittest.TestCase):
@@ -5248,7 +5248,7 @@ index b576728..d46b7ff 100644
          for target in (self.app, self.app / 'Contents/MacOS/dmhost'):
              subprocess.run(['codesign', '--verify', '--strict', target], check=True, capture_output=True)
 diff --git a/docs/development.md b/docs/development.md
-index f10fd9e..e882247 100644
+index f10fd9ee..e8822476 100644
 --- a/docs/development.md
 +++ b/docs/development.md
 @@ -614,6 +614,10 @@ Why the host is a child process: macOS privacy checks (TCC) cover files on remov
@@ -5263,7 +5263,7 @@ index f10fd9e..e882247 100644
  
  With an Apple developer account, Xcode can sign and install the app itself:
 diff --git a/docs/frontends.md b/docs/frontends.md
-index d97efbd..cf58514 100644
+index d97efbd2..cf58514a 100644
 --- a/docs/frontends.md
 +++ b/docs/frontends.md
 @@ -68,6 +68,7 @@ Each app keeps the player's choices in its own preferences domain, its bundle ID
@@ -5314,7 +5314,7 @@ index d97efbd..cf58514 100644
  The folder a Mac app's save is synced through ([Cloud saves](settings.md#cloud-saves)) is not a row of the settings list, since a folder is none of its kinds. It has a key of its own in the same store: `cloudSaves.folder`, a string with the folder's absolute path (`defaults write org.nxnative.<title ID> cloudSaves.folder "$HOME/Library/Mobile Documents/com~apple~CloudDocs/My Saves"`). Remove the key, or write an empty string, to turn cloud saves off. The app's settings window shows and changes the same key, so the player sees the folder a front end chose.
 diff --git a/docs/mac-controllers.md b/docs/mac-controllers.md
 new file mode 100644
-index 0000000..e633df5
+index 00000000..e633df5a
 --- /dev/null
 +++ b/docs/mac-controllers.md
 @@ -0,0 +1,253 @@
@@ -5572,7 +5572,7 @@ index 0000000..e633df5
 +first. For repeated development builds, the packer's existing `--mac-sign`
 +option can use a stable signing identity, see [Mac app signing](development.md#a-mac-app).
 diff --git a/docs/reference/services.md b/docs/reference/services.md
-index 665a743..32d05f7 100644
+index 665a7438..32d05f7c 100644
 --- a/docs/reference/services.md
 +++ b/docs/reference/services.md
 @@ -386,6 +386,27 @@ Most service calls can be found before they crash, before the first boot or the

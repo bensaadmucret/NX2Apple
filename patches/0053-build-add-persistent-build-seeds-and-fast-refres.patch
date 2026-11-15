@@ -16,7 +16,7 @@ Issue: none
  create mode 100755 dm/tools/build_seed.py
 
 diff --git a/dm/ios/tests/test_bundle_id.py b/dm/ios/tests/test_bundle_id.py
-index 75631a4..27ffa2a 100644
+index 75631a4b..27ffa2ac 100644
 --- a/dm/ios/tests/test_bundle_id.py
 +++ b/dm/ios/tests/test_bundle_id.py
 @@ -136,7 +136,7 @@ class CliBundleIdWorkflowTests(unittest.TestCase):
@@ -29,7 +29,7 @@ index 75631a4..27ffa2a 100644
              }.items():
                  stack.enter_context(patch.object(build, name, return_value=value))
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 9e7bfda..a5dfff4 100755
+index 9e7bfda0..a5dfff4b 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -91,12 +91,33 @@ export DM_SCHEME_NAME
@@ -142,7 +142,7 @@ index 9e7bfda..a5dfff4 100755
  if [ "$DM_COPY_ROMFS" != NO ] && [ -n "$AOC" ] && [ -d "$AOC" ]; then
 diff --git a/dm/tools/build_seed.py b/dm/tools/build_seed.py
 new file mode 100755
-index 0000000..5a45afe
+index 00000000..5a45afe1
 --- /dev/null
 +++ b/dm/tools/build_seed.py
 @@ -0,0 +1,1996 @@
@@ -2143,7 +2143,7 @@ index 0000000..5a45afe
 +if __name__ == '__main__':
 +    sys.exit(main())
 diff --git a/dm/tools/romfs_image.py b/dm/tools/romfs_image.py
-index 769d0b3..6a9f1f8 100755
+index 769d0b31..6a9f1f8f 100755
 --- a/dm/tools/romfs_image.py
 +++ b/dm/tools/romfs_image.py
 @@ -31,6 +31,9 @@ GFX_API_CODES = {'nvn': 1, 'vulkan': 2, 'gl': 3}
@@ -2325,7 +2325,7 @@ index 769d0b3..6a9f1f8 100755
              if len(args.pos) != 2:
                  raise ValueError('expected IMAGE and MSL_SRC arguments')
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index f39ea9f..c1ef7d5 100755
+index f39ea9fc..c1ef7d53 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -44,6 +44,8 @@ import nso   # the code module loader: nso.Error is a damaged module (its file c

@@ -30,7 +30,7 @@ Issue: LNPANDY/NX2Apple (v1.5.0 local)
  17 files changed, 435 insertions(+), 30 deletions(-)
 
 diff --git a/dm/gfx/gl/hle_gl.m b/dm/gfx/gl/hle_gl.m
-index 18bb491..b1767b4 100644
+index 18bb4915..b1767b4a 100644
 --- a/dm/gfx/gl/hle_gl.m
 +++ b/dm/gfx/gl/hle_gl.m
 @@ -222,7 +222,12 @@ static void dev_init_once(void) {
@@ -146,7 +146,7 @@ index 18bb491..b1767b4 100644
      g_samp0 = nil;
      g_tex0 = nil; g_cube0 = nil; g_tex3d0 = nil; g_arr0 = nil;
 diff --git a/dm/host/dm.h b/dm/host/dm.h
-index e15607f..036f3b3 100644
+index e15607f2..036f3b3f 100644
 --- a/dm/host/dm.h
 +++ b/dm/host/dm.h
 @@ -229,5 +229,10 @@ void dm_gfx_shot_at(long k, const char *path);
@@ -162,7 +162,7 @@ index e15607f..036f3b3 100644
 +int  dm_teardown_is_guest_thread(void);
 +void dm_teardown_park_self(void);
 diff --git a/dm/host/hle_audio.c b/dm/host/hle_audio.c
-index cc6df79..6e02d42 100644
+index cc6df797..6e02d422 100644
 --- a/dm/host/hle_audio.c
 +++ b/dm/host/hle_audio.c
 @@ -43,6 +43,7 @@ typedef struct {
@@ -216,7 +216,7 @@ index cc6df79..6e02d42 100644
          dispatch_semaphore_signal(a->notify_sem);
          pthread_join(a->notify_th, NULL);
 diff --git a/dm/host/hle_audren.c b/dm/host/hle_audren.c
-index 314cc70..27fb483 100644
+index 314cc708..27fb4835 100644
 --- a/dm/host/hle_audren.c
 +++ b/dm/host/hle_audren.c
 @@ -27,6 +27,7 @@ void dm_pcmout_start(void *k);
@@ -327,7 +327,7 @@ index 314cc70..27fb483 100644
              free(owned);
              free(g_ar[i].render_tt);
 diff --git a/dm/host/hle_bigstack.c b/dm/host/hle_bigstack.c
-index 0aaaf01..7c7ec77 100644
+index 0aaaf016..7c7ec77c 100644
 --- a/dm/host/hle_bigstack.c
 +++ b/dm/host/hle_bigstack.c
 @@ -24,7 +24,57 @@ int dm_guest_as_contains(uintptr_t a);   // hle_svc.c
@@ -390,7 +390,7 @@ index 0aaaf01..7c7ec77 100644
  
  // sp inside the guest address block -> the top of this thread's host stack (16-byte aligned); otherwise 0 (no switch)
 diff --git a/dm/host/hle_lifecycle.c b/dm/host/hle_lifecycle.c
-index 0655d1c..8ea7451 100644
+index 0655d1c4..8ea74515 100644
 --- a/dm/host/hle_lifecycle.c
 +++ b/dm/host/hle_lifecycle.c
 @@ -5,9 +5,38 @@
@@ -460,7 +460,7 @@ index 0655d1c..8ea7451 100644
      dm_switch2_teardown();
      dm_audren_teardown_post();
 diff --git a/dm/host/hle_svc.c b/dm/host/hle_svc.c
-index 46ecb0b..f3d8fce 100644
+index 46ecb0b4..f3d8fced 100644
 --- a/dm/host/hle_svc.c
 +++ b/dm/host/hle_svc.c
 @@ -879,12 +879,22 @@ static void *regions_thread(void *arg) {
@@ -499,7 +499,7 @@ index 46ecb0b..f3d8fce 100644
      }
      case 0x1E: guest_clock_read_wait(); regs[0] = 0; regs[1] = guest_ticks(); return 0;   // GetSystemTick
 diff --git a/dm/host/hle_thread.c b/dm/host/hle_thread.c
-index bb66ccb..04074a8 100644
+index bb66ccb6..04074a8a 100644
 --- a/dm/host/hle_thread.c
 +++ b/dm/host/hle_thread.c
 @@ -268,6 +268,16 @@ void dm_teardown_check_current_thread(void) {
@@ -520,7 +520,7 @@ index bb66ccb..04074a8 100644
      thr_t *b = NULL;
      for (thr_t *t = g_wait; t; t = t->next) {
 diff --git a/dm/host/home_quit.h b/dm/host/home_quit.h
-index 8acb4a5..d807b94 100644
+index 8acb4a5b..d807b94f 100644
 --- a/dm/host/home_quit.h
 +++ b/dm/host/home_quit.h
 @@ -147,6 +147,11 @@ static inline void hq_text_line(const char *text, int i, const char *def, char *
@@ -536,7 +536,7 @@ index 8acb4a5..d807b94 100644
  // "system" (the system keeps Home whatever the app asks), "app" (the app decides), "off" (the system does nothing with Home in apps),
  // "unavailable" (could not be read)
 diff --git a/dm/host/tests/t_audio_spsc.c b/dm/host/tests/t_audio_spsc.c
-index 197b724..310b02d 100644
+index 197b724c..310b02dc 100644
 --- a/dm/host/tests/t_audio_spsc.c
 +++ b/dm/host/tests/t_audio_spsc.c
 @@ -117,8 +117,51 @@ static int stop_pending(void) {
@@ -592,7 +592,7 @@ index 197b724..310b02d 100644
      test_ctx t = {0};
      t.bufs = calloc(NBUF, sizeof *t.bufs); t.data = calloc(NBUF, sizeof *t.data); t.sizes = calloc(NBUF, sizeof *t.sizes); t.scratch = malloc(512);
 diff --git a/dm/host/tests/t_audren_layout.c b/dm/host/tests/t_audren_layout.c
-index a291697..d145486 100644
+index a291697c..d145486e 100644
 --- a/dm/host/tests/t_audren_layout.c
 +++ b/dm/host/tests/t_audren_layout.c
 @@ -37,6 +37,7 @@ int dm_pcmout_append(void *k, void *b) {
@@ -604,7 +604,7 @@ index a291697..d145486 100644
  uint32_t hle_dup_readable_handle(uint32_t h) { return h; }
  
 diff --git a/dm/host/tests/t_audren_work.c b/dm/host/tests/t_audren_work.c
-index 59858c1..82c6742 100644
+index 59858c17..82c67429 100644
 --- a/dm/host/tests/t_audren_work.c
 +++ b/dm/host/tests/t_audren_work.c
 @@ -101,6 +101,7 @@ void dm_pcmout_start(void *k) { (void)k; }
@@ -616,7 +616,7 @@ index 59858c1..82c6742 100644
      if (ev == notify_event) { assert(ac == 0); notify_binds++; return; }
      assert(ev == sdk_event && ac == 1 && event_destroys == 2 * event_binds + 1);   // after the open destroys the SDK's local event (each earlier Close destroyed one more)
 diff --git a/dm/host/tests/t_bigstack.c b/dm/host/tests/t_bigstack.c
-index cc6afc3..b06c734 100644
+index cc6afc31..b06c734b 100644
 --- a/dm/host/tests/t_bigstack.c
 +++ b/dm/host/tests/t_bigstack.c
 @@ -1,6 +1,7 @@
@@ -677,7 +677,7 @@ index cc6afc3..b06c734 100644
      return fails != 0;
  }
 diff --git a/dm/host/tests/t_home_quit.c b/dm/host/tests/t_home_quit.c
-index 94ef558..19a387f 100644
+index 94ef558d..19a387f4 100644
 --- a/dm/host/tests/t_home_quit.c
 +++ b/dm/host/tests/t_home_quit.c
 @@ -191,6 +191,15 @@ int main(void) {
@@ -697,7 +697,7 @@ index 94ef558..19a387f 100644
      return fails != 0;
  }
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index a623793..9860743 100644
+index a623793d..9860743a 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -169,6 +169,8 @@ @implementation DmGamepad {
@@ -880,7 +880,7 @@ index a623793..9860743 100644
          [self wakeMenu];
      }
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index 5ba4484..e2901fa 100644
+index 5ba4484d..e2901fa6 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
 @@ -584,6 +584,7 @@ static void save_sync_background(void) {
@@ -933,7 +933,7 @@ index 5ba4484..e2901fa 100644
      if (atomic_exchange(&g_quitting, 1)) return;
      dm_shell_return_fn shell_return = (dm_shell_return_fn)dlsym(RTLD_DEFAULT, "dm_shell_return_to_library");
 diff --git a/dm/ios/framework/ShellGlue.m b/dm/ios/framework/ShellGlue.m
-index e1c5074..37c7bef 100644
+index e1c50745..37c7befa 100644
 --- a/dm/ios/framework/ShellGlue.m
 +++ b/dm/ios/framework/ShellGlue.m
 @@ -57,8 +57,12 @@ void dm_glue_focus_event(int ev) {
