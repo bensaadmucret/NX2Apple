@@ -10,7 +10,10 @@ package struct FilePick: Equatable {
     package var prompt: String?
 
     package init(allowsMultiple: Bool, fileTypes: [String], message: String? = nil, prompt: String? = nil) {
-        self.allowsMultiple = allowsMultiple; self.fileTypes = fileTypes; self.message = message; self.prompt = prompt
+        self.allowsMultiple = allowsMultiple
+        self.fileTypes = fileTypes
+        self.message = message
+        self.prompt = prompt
     }
 }
 
@@ -44,10 +47,20 @@ package struct FilePick: Equatable {
     nonisolated func askCopy(_ plan: ShellCopyPlan) -> ShellCopyDecision
     nonisolated func setWaiting(_ on: Bool)
     nonisolated var waitCancelled: Bool { get }
+    func cancelCopy()
     func copyEnded()
+    /// Reads the device listing again (a transfer asks it when a send failed, to tell a device that went away from a refusal).
+    func refreshDevices() async
 }
 
-extension DeviceStore: InstallTarget {}
+extension InstallTarget {
+    package func cancelCopy() {}
+    package func refreshDevices() async {}
+}
+
+extension DeviceStore: InstallTarget {
+    package func refreshDevices() async { await refresh().value }
+}
 extension DependencyStore: DependencyInstalling {}
 extension EngineSyncStore: EngineSyncing {}
 
@@ -64,8 +77,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
 ///   stores: `RepoLocation` (where the checkout is), `DependencyInstalling` (the tools: `DependencyStatus` and the install the fix
 ///   buttons run), `EngineSyncing` (the sync a stale `engine/` needs before a build) and `InstallTarget` (the device, the team and
 ///   the copy flow). The app wires them.
-/// - AppKit reaches it as closures: the file and folder pickers (`choosePaths`, `chooseFolder`, `chooseSaveLocation`), the notice
-///   (`showNotice`), the Finder (`revealFolder`, `openApp`), and `targetChanged`, which the app answers with a new dependency check.
+/// - AppKit reaches it as closures: the file and folder pickers (`choosePaths`, `chooseFolder`, `chooseSaveLocation`), the Finder
+///   (`revealFolder`, `openApp`), and `targetChanged`, which the app answers with a new dependency check.
 /// - It checks the conditions for its own actions: `canBuild` and the start of a build (`startBuild`).
 /// - The pieces live in the `BuildStore+` files: `Inputs`, `Run`, `Failure`, `Archive`, `Install`, `Stale`, `DropFiles`.
 @MainActor package final class BuildStore: ObservableObject {
@@ -74,6 +87,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     nonisolated package static let bcOnCPUKey = "bcOnCPU"
     nonisolated package static let experimentalBuilderKey = "experimentalBuilder"
     nonisolated package static let experimentalBuilderPathKey = "experimentalBuilderPath"
+    nonisolated package static let savedKeysKey = "savedKeysPath"
 
     @Published package var gameDir = ""
     @Published package var slots: [Slot] = [
@@ -83,24 +97,45 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         Slot(id: "keys", kind: .keys, title: "data.keys", optional: false),
     ] {
         didSet {
-            if (selectedTitleID != nil || failure?.kind == .severalGames), slots.map(\.paths) != oldValue.map(\.paths) {
-                selectedTitleID = nil
-                if failure?.kind == .severalGames { failure = nil; doneNote = "" }
+            if slots.map(\.paths) != oldValue.map(\.paths) {
+                invalidateKeyProblem()
+                if selectedTitleID != nil || failure?.kind == .severalGames {
+                    selectedTitleID = nil
+                    if failure?.kind == .severalGames {
+                        failure = nil
+                        doneNote = ""
+                    }
+                }
             }
         }
     }
     /// The program the player chose for this build, including its device checks and retries.
     var selectedTitleID: String?
     /// The game folder the rows came from (BuildStore+GameFolder.swift), nil for packages.
-    @Published package var gameFolder: GameFolder.Contents?
+    @Published package var gameFolder: GameFolder.Contents? {
+        didSet {
+            if gameFolder != oldValue {
+                invalidateKeyProblem()
+            }
+        }
+    }
     /// A folder meant as a game folder was refused: the base row says why.
     @Published package var gameFolderRefused = false
     @Published package var outDir: String {
         didSet { defaults.set(outDir, forKey: Self.outputKey) }
     }
     @Published package var stages: [Stage] = []
-    var staleShadersShown = false   // the stale-shaders notice shows once per build
-    @Published package var running = false
+    /// The first shader rebuild explanation of this build. The view localizes it without pausing progress ingestion.
+    @Published package var staleShadersMessageKey: String?
+    @Published package var running = false {
+        didSet {
+            if !running, !buildingGame { runningTarget = target }
+            if !running { operation = nil }
+        }
+    }
+    /// What runs right now: operation, game and destination, taken when the work starts and independent of the Build form
+    /// (BuildStore+Operation.swift). nil when nothing runs.
+    @Published package internal(set) var operation: ActiveOperation?
     @Published package var staleFrameworks: [StaleFrameworks.Entry] = []   // the prompt of StaleFrameworksPrompt.swift (#449)
     // The shell folder (shellCachePath, shellRoot, shellRootProblem): BuildStore+ShellRoot.swift.
     @Published package var stopping = false
@@ -119,17 +154,31 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     @Published package var confirmingOverride: BuildFailureKind?
     /// The one-off `--allow-*` of a confirmed "Build anyway": taken by the next build and never stored.
     package var armedOverride: BuildFailureKind?
+    /// Blocking preflight message when `prod.keys` lacks a required `master_key_XX` or `header_key` for the selected packages.
+    @Published package var keyProblem: String?
+    package var keyCheckGeneration = 0
+    /// Total planned stages (`n` from `[k/n]`) and monotonic overall fraction (`0.0...1.0`) for the active build.
+    @Published package var totalStages = 0
+    @Published package var overallProgress: Double?
+    package var peakOverallProgress: Double = 0
     @Published package var macAppPath = ""   // --platform mac-app: the .app this build produced
     package var oneGameIPAPath = ""   // the IPA a one-game export writes (#540), empty for any other build
-    /// BuildTarget.ios = the game's framework in the one shared app on an iPhone or iPad; BuildTarget.mac = a double-clickable
+    /// BuildTarget.ios = the game's framework in the one shared app on an iPhone or iPad, BuildTarget.mac = a double-clickable
     /// Mac app (upstream's --platform mac-app). A Mac app is a different output of the same pipeline, not a
     /// different pipeline: same extraction, rewrite and shaders, then dm/mac/pack_app.py.
     @Published package var target: String {
         didSet {
             defaults.set(target, forKey: Self.targetKey)
+            if !running { runningTarget = target }
             if oldValue != target { targetChanged() }
         }
     }
+    /// The target of the operation currently running (or last run), so an iPhone re-sign, reinstall, export or data copy started while
+    /// the Build form's `target` picker sits on `mac-app` still reports itself as an iPhone activity.
+    @Published package var runningTarget: String
+    /// True when `running` is a game build rather than a standalone post-build action (`resignOnDevice`, `reinstallOnDevice`,
+    /// `saveIPA`, `sendGameData`, `copyToDrive`, `confirmShellMove`).
+    package var buildingGame = true
     /// Decode BC-compressed textures on the CPU. Only relevant for GPUs without BC support
     /// (A15/A16 and older): on a device that has it the GPU path is always better, so the switch
     /// is a compatibility option and defaults off. Passed as DM_PROF_TEX_BC_CPU through --env-file,
@@ -137,8 +186,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     @Published package var bcOnCPU: Bool {
         didSet { defaults.set(bcOnCPU, forKey: Self.bcOnCPUKey) }
     }
-    /// Settings, "Build with nxb" (#749): the build is `nxb build`. A game or a step nxb does not take (exit code 4) is built again by the NSP script.
-    /// On by default. Off, every build is the NSP script. BuildStore+Builder.swift passes it to the build.
+    /// Settings, "Use experimental builder" (#749): the NSP script hands the stages nxbuild supports to it, and runs the rest the standard way.
+    /// Off by default. BuildStore+Builder.swift passes it to the build.
     @Published package var experimentalBuilder: Bool {
         didSet { defaults.set(experimentalBuilder, forKey: Self.experimentalBuilderKey) }
     }
@@ -146,10 +195,17 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     @Published package var experimentalBuilderPath: String {
         didSet { defaults.set(experimentalBuilderPath, forKey: Self.experimentalBuilderPathKey) }
     }
+    /// The prod.keys chosen once for every game (Settings, "Keys", #996): a build whose keys row is empty or names a file that is gone
+    /// takes it (BuildStore+SavedKeys.swift). Empty when none is saved.
+    @Published package internal(set) var savedKeys: String {
+        didSet {
+            if savedKeys.isEmpty { defaults.removeObject(forKey: Self.savedKeysKey) } else { defaults.set(savedKeys, forKey: Self.savedKeysKey) }
+            if savedKeys != oldValue { invalidateKeyProblem() }
+        }
+    }
     /// The app's own nxb (Contents/Resources/nxbuild/nxb, frontend/nxbuild.pin), nil in tests and in a build without a pinned release.
     package var bundledBuilder: String? = ExperimentalBuilder.bundled(resources: Bundle.main.resourcePath)
     package var nxbRun = false   // the running build is `nxb build`, not the script: its exit code has its own messages
-    package var scriptFallback = false   // the next run is the script, because nxb ended with exit code 4 for this build
     @Published package var archivePath = ""  // the romfs folder the pack wrote
     /// Where this build's folder actually is: --work-dir when the checkout has it, else the script's
     /// default under the input folder (issue #5 — an upstream checkout has no --work-dir).
@@ -170,15 +226,68 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     /// The player chose the Finder way after the copy to the device did not work: step 3 shows its three steps (#491).
     @Published package var finderShown = false
     @Published package var drive: DriveState?      // the chosen folder's volume and what stops the copy (BuildStore+Send.swift)
+    @Published package var driveBatchLabel = ""    // active game label during a multi-game drive copy ("1/3 · Hades")
     var shellRetry: (framework: String, titleID: String, name: String, archive: String)?
+    var shellBatchRetry: [DeferredShellGame]?
     var shellDeviceChecked = false
     package let driveCancel = LockedFlag()   // Stop of the copy to a drive (BuildStore+Send.swift)
     @Published package var shellMove: ShellMove = .idle   // Move cache folder (BuildStore+ShellRoot.swift, #427)
     package let shellMoveStop = LockedFlag()
+    let installCancel = LockedFlag()
+    var installPhaseActive = false
+    package var fastRefreshActive = false
+    package var fastRefreshTitleID: String? = nil
+    package var fastRefreshGameName: String? = nil
+    package var fastRefreshBaseDir: String? = nil
+    package var fastRefreshExternalImgPath: String? = nil
+
+    /// Output folder for the current operation: respects fastRefreshBaseDir during fast refresh,
+    /// falling back to outDir or inputFolder for standard builds.
+    package var effectiveOutputFolder: String {
+        if fastRefreshActive, let base = fastRefreshBaseDir, !base.isEmpty {
+            return base
+        }
+        return outDir.isEmpty ? inputFolder : outDir
+    }
     /// The home folder the default shell root is in. Tests use a temporary one, so they never touch the real Application Support.
     package var home = NSHomeDirectory()
 
     // ---- The app's side: AppKit and the wiring, as closures ----
+    /// The games whose data can go to a device: the app fills it from the library (title ID, name, the packed data folder).
+    package var sharedAppDataSources: () -> [TransferSource] = { [] }
+    /// Extra arguments for a Mac app build of a game (title ID in, arguments out): the app adds `--fallback-icon` (#784).
+    package var macFallbackIconArguments: (String) -> [String] = { _ in [] }
+    /// The transfer queue (#1036), which the app wires. Sending data goes through it so that a build can run beside it.
+    package weak var transfers: TransferQueueStore?
+    /// The build queue (#943), wired by the app so the Build page's start actions can run a staged queue batch.
+    package weak var queue: BuildQueueStore? {
+        didSet {
+            let count = queue?.queued.count ?? 0
+            if queuedCount != count { queuedCount = count }
+            queueSubscription = queue?.$entries.sink { [weak self] entries in
+                let next = entries.filter { $0.status == .queued }.count
+                if self?.queuedCount != next { self?.queuedCount = next }
+            }
+        }
+    }
+    @Published package private(set) var queuedCount = 0
+    private var queueSubscription: AnyCancellable?
+    /// The running send of each transfer asks this flag whether it was cancelled.
+    var transferCancels: [UUID: LockedFlag] = [:]
+    /// A queued shared-app batch builds each game and packages or installs the app once at the end (#997).
+    package var deferShellPackaging = false
+    var deferredExportsIPA = false
+    package var queuedExportIPA: Bool?
+    package var queuedExportOneGame: Bool?
+    var skipStaleCheckForQueuedEntry = false
+    var afterStaleFrameworks: (() -> Void)?
+    package var activeQueuedGameID: UUID?
+    /// Stop was pressed during the running work (the queue pauses after it). Cleared when the next build starts.
+    package var stoppedByPlayer = false
+    var deferredShell: [DeferredShellGame] = []
+    package var pickedArtworkForTitleID: (String) -> String? = { _ in nil }
+    package var onBatchShellInstalled: ([DeferredShellGame], String, String) -> Void = { _, _, _ in }
+    package var onBuiltGamesInstalled: (String, String) -> Void = { _, _ in }
     package var chooseKeys: (() -> Void)?          // tests stand in for the file picker
     /// The open panel: the paths the player picked, none when they cancelled.
     package var choosePaths: (FilePick) -> [String] = { _ in [] }
@@ -186,12 +295,27 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     package var chooseFolder: () -> String? = { nil }
     /// The save panel of "Save IPA" (title, the name offered): where to write, nil when they cancelled.
     package var chooseSaveLocation: (String, String) -> URL? = { _, _ in nil }
-    /// A notice the player must see (the shaders are rebuilt): an alert with a title and a text.
-    package var showNotice: (_ title: String, _ text: String) -> Void = { _, _ in }
     package var revealFolder: (URL) -> Void = { _ in }
     /// A Finder window with this file or folder selected (`activateFileViewerSelecting`).
     package var revealItem: (URL) -> Void = { _ in }
     package var openApp: (URL) -> Void = { _ in }
+    /// Opens a new Mac app once, hidden, with DM_PREFLIGHT set, and calls back on the main actor when it has quit, with the
+    /// error that stopped it, if any (`MacPreflight`, #1005). Nil: no check, as in the tests that do not set it.
+    package var preflightApp: ((URL, @escaping @MainActor (Error?) -> Void) -> Void)?
+    /// Cancellable async preflight runner wired by `LauncherStores` so Stop or timeout terminates the hidden check process immediately.
+    package var runPreflight: ((URL, TimeInterval) async -> Error?)?
+    /// Whether this app's launcher knows DM_PREFLIGHT. Tests stand in for the binary's answer.
+    package var preflightSupported: (URL) -> Bool = { MacPreflight.supports($0) }
+    /// How long the check may take. Tests shorten it.
+    package var preflightTimeout = MacPreflight.timeout
+    /// Ends the check's wait now (Stop, or the timeout), while the build's last stage runs it.
+    var endPreflight: (@MainActor (Error) -> Void)?
+    /// The free bytes on the volume of a folder, nil when unknown. Tests stand in for the system's answer.
+    package var spaceAvailable: (String) -> Int64? = { BuildSpace.available(at: $0) }
+    /// Stable volume identifier for cross-volume `shellRoot` checks. Tests stand in for deterministic two-volume scenarios.
+    package var volumeIdentifier: (String) -> String? = { BuildSpace.volumeID(at: $0) }
+    /// Synchronous preflight key validator `(keysPath, packagePaths) -> blockingMessage?` wired by the app target.
+    package var preflightKeyProblem: (String, [String]) -> String? = { _, _ in nil }
     /// Whether the build folder is in a cloud folder. Tests stand in for the system's answer.
     package var cloudFolderCheck: (String) -> Bool = { CloudFolder.contains($0) }
     /// Whether the volume of this folder can replace an old Mac app (APFS), nil when unknown. Tests stand in for the system's answer.
@@ -211,11 +335,13 @@ func hop(_ body: @escaping @MainActor () -> Void) {
 
     var proc: RunningProcess?
     var staging: String?
+    var stagedResignProfiles: AppSignature.StagedProfiles?
     var psoStageID: Int?
     var psoStep = ""
     var psoNativeProgress = false
     var psoPollGeneration = 0
     var psoPollTask: Task<Void, Never>?
+    var archiveGeneration = 0
 
     /// - Parameters:
     ///   - volumesRoot: where external drives are mounted (the failure classifier reads it).
@@ -234,10 +360,13 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         self.volumesRoot = volumesRoot
         self.targetChanged = targetChanged
         outDir = defaults.string(forKey: Self.outputKey) ?? ""
-        target = BuildTarget.saved(defaults)
+        let savedTarget = BuildTarget.saved(defaults)
+        target = savedTarget
+        runningTarget = savedTarget
         bcOnCPU = defaults.bool(forKey: Self.bcOnCPUKey)
-        experimentalBuilder = defaults.object(forKey: Self.experimentalBuilderKey) as? Bool ?? true   // a choice the player saved stays
+        experimentalBuilder = ExperimentalBuilder.featureEnabled && defaults.bool(forKey: Self.experimentalBuilderKey)
         experimentalBuilderPath = defaults.string(forKey: Self.experimentalBuilderPathKey) ?? ""
+        savedKeys = defaults.string(forKey: Self.savedKeysKey) ?? ""
     }
 
     /// The language and the text this store writes itself: views take strings from the environment.
@@ -246,16 +375,15 @@ func hop(_ body: @escaping @MainActor () -> Void) {
 
     /// This iPhone build goes straight to a device.
     /// An iPhone or iPad build that makes the shared app as an unsigned IPA (#416): no device, no team.
-    package var exportsShell: Bool { target != BuildTarget.mac && devices.exportIPA }
+    package var exportsShell: Bool { target != BuildTarget.mac && (queuedExportIPA ?? devices.exportIPA) }
     /// An export of one game's own IPA with the game data inside (#540): the engine's one-game app, no shared app, nothing to send.
-    package var exportsOneGame: Bool { exportsShell && devices.exportOneGame }
+    package var exportsOneGame: Bool { exportsShell && (queuedExportOneGame ?? devices.exportOneGame) }
     package var installsDirectly: Bool { target != BuildTarget.mac && !devices.installDevice.isEmpty && !devices.signingTeam.isEmpty }
 
     /// Home shown as ~ (shorter in a one-line row, and it keeps the account name out of screenshots).
     package func shortPath(_ path: String) -> String { RepoLayout.shortPath(path) }
 
     package var basePath: String { slot("base").paths.first ?? "" }
-    package var keysPath: String { slot("keys").paths.first ?? "" }
     package var updatePath: String { slot("update").paths.first ?? "" }
     package var dlcPaths: [String] { slot("dlc").paths }
 
@@ -273,11 +401,29 @@ func hop(_ body: @escaping @MainActor () -> Void) {
 
     // MARK: Ending a build
 
-    package func fail(_ why: String) { stopPSOPoll(); running = false; doneNote = why; say("✗ " + why); cleanupStaging() }
+    package func fail(_ why: String) {
+        archiveGeneration &+= 1
+        fastRefreshExternalImgPath = nil
+        stopPSOPoll()
+        running = false
+        doneNote = why
+        say("✗ " + why)
+        cleanupStaging()
+    }
 
     package func stop() {
-        if case .moving = shellMove { stopShellMove(); return }
+        if running { stoppedByPlayer = true }
+        if case .moving = shellMove {
+            stopShellMove()
+            return
+        }
+        if stopPendingInstallOrCopy() { return }
+        if let endPreflight {
+            endPreflight(MacPreflight.Failure.stopped)
+            return
+        }
         guard running, !stopping, let proc, proc.isRunning else { return }
+        archiveGeneration &+= 1
         stopping = true
         stopPSOPoll()
         ProcessGroups.endGroup(proc.processIdentifier)   // the script and every tool it started
@@ -285,12 +431,25 @@ func hop(_ body: @escaping @MainActor () -> Void) {
 
     package func cleanupStaging() {
         staging = nil   // the folder stays for the next build of this game (#132, InputStaging)
+        stagedResignProfiles?.rollback()
+        stagedResignProfiles = nil
     }
 
     /// A stopped build leaves no half-finished stages behind: the progress starts empty again.
-    package func resetProgress() { stopPSOPoll(); stages = []; log.clear() }
+    package func resetProgress() {
+        archiveGeneration &+= 1
+        fastRefreshExternalImgPath = nil
+        stopPSOPoll()
+        stages = []
+        log.clear()
+    }
 
-    package func markAllDone() { stopPSOPoll(); for i in stages.indices where stages[i].state != .failed { stages[i].state = .done } }
+    package func markAllDone() {
+        stopPSOPoll()
+        for i in stages.indices where stages[i].state != .failed {
+            stages[i].state = .done
+        }
+    }
 
     func startPSOPoll(stageID: Int, step: String) {
         psoPollTask?.cancel()
@@ -338,8 +497,12 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         psoNativeProgress = false
     }
 
+    private static func isPSOStage(_ name: String) -> Bool {
+        name == "Pipeline archive" || name == "game framework"
+    }
+
     /// Inspect `<workDir>/pso/mac-work` (or the iOS work directory / logs) for completed `pso_offline.py` batches while the
-    /// `Pipeline archive` stage runs without native JSON counts from the script.
+    /// `Pipeline archive` or `game framework` stage runs without native JSON counts from the script.
     package func pollPSOArchive() {
         guard !psoNativeProgress, let id = psoStageID, !effectiveWorkDir.isEmpty else { return }
         let generation = psoPollGeneration
@@ -364,6 +527,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         if stages[i].percent != pct || stages[i].detail != detail {
             stages[i].percent = pct
             stages[i].detail = detail
+            refreshOverallProgress(parsedTotal: nil)
         }
     }
 
@@ -374,7 +538,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
 
     /// Split into lines (the pipe delivers arbitrary chunks) and turn the script's progress into the stage list.
     /// `--progress json` writes one event per line (stage, step, progress with done / total / frac / eta, stage_end,
-    /// say), a count change at most every half second; anything else on the pipe (a tool's traceback) is log text.
+    /// say), a count change at most every half second, and anything else on the pipe (a tool's traceback) is log text.
     /// The older `--progress lines` form is still understood:
     ///   [12:00:01] [2/7] extract v720896 …
     ///   [12:00:20] ✓ [2/7] extract v720896 (0:19): 30,000 files, 3.4 GB
@@ -392,9 +556,9 @@ func hop(_ body: @escaping @MainActor () -> Void) {
             return handleEvent(kind, event)
         }
         append(line + "\n")
-        guard let s = BuildProgress.parseStage(line) else { return }
+        guard let s = BuildProgress.parseStageWithTotal(line) else { return }
         if s.state == .running {
-            if s.name == "Pipeline archive" {
+            if Self.isPSOStage(s.name) {
                 if s.percent != nil {
                     psoPollGeneration &+= 1
                     psoNativeProgress = true
@@ -410,7 +574,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
             stopPSOPoll()
         }
         if let i = stages.firstIndex(where: { $0.id == s.k }) {
-            if !s.name.isEmpty { stages[i].name = Stage.localizedName(s.name, t) }
+            if !s.name.isEmpty { stages[i].name = s.name }
             if s.state != .pending { stages[i].state = s.state }
             let keepPSOPoll = (s.state == .running && s.percent == nil && psoStageID == s.k && !psoNativeProgress && stages[i].percent != nil)
             if !keepPSOPoll {
@@ -418,27 +582,33 @@ func hop(_ body: @escaping @MainActor () -> Void) {
                 stages[i].percent = s.percent
             }
         } else if s.state != .pending {
-            stages.append(Stage(id: s.k, name: Stage.localizedName(s.name, t), state: s.state, detail: s.detail, percent: s.percent, started: Date()))
+            stages.append(Stage(id: s.k, name: s.name, state: s.state, detail: s.detail, percent: s.percent, started: Date()))
             stages.sort { $0.id < $1.id }
         }
+        refreshOverallProgress(parsedTotal: s.n)
     }
 
     /// The `shaders_stale` event: the cached shader libraries cannot be reused and this build rebuilds them, because the
     /// shader translator changed (`reason` "chain") or the game profile's shader inputs did ("inputs").
-    /// An alert, not a log line: a report asked why the shaders were building again, because the log line went unnoticed.
+    /// The progress card keeps the explanation visible without waiting for an acknowledgment (#862).
     /// Once per build: the script sends the event once per shader step. A reason a newer script adds shows nothing: no text explains it.
     package func noteStaleShaders(reason: String) {
-        guard let text = ["chain": "msg.shadersStale.chain", "inputs": "msg.shadersStale.inputs"][reason], !staleShadersShown else { return }
-        staleShadersShown = true
-        showNotice(t("msg.shadersStale.title"), t(text))
+        guard let text = ["chain": "msg.shadersStale.chain", "inputs": "msg.shadersStale.inputs"][reason], staleShadersMessageKey == nil else { return }
+        staleShadersMessageKey = text
     }
 
     /// One event of `--progress json`: the stage list follows it, and the log gets a readable line (no count updates).
     package func handleEvent(_ kind: String, _ e: [String: Any]) {
         let k = (e["k"] as? NSNumber)?.intValue ?? 0
         func stage(_ update: (inout Stage) -> Void) {
-            if let i = stages.firstIndex(where: { $0.id == k }) { update(&stages[i]) }
-            else { var s = Stage(id: k, name: Stage.localizedName(e["name"] as? String ?? "", t)); update(&s); stages.append(s); stages.sort { $0.id < $1.id } }
+            if let i = stages.firstIndex(where: { $0.id == k }) {
+                update(&stages[i])
+            } else {
+                var s = Stage(id: k, name: e["name"] as? String ?? "")
+                update(&s)
+                stages.append(s)
+                stages.sort { $0.id < $1.id }
+            }
         }
         switch kind {
         case "stage":
@@ -446,7 +616,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
             let n = (e["n"] as? NSNumber)?.intValue ?? 0
             append("[\(k)/\(n)] \(name)" + (step.isEmpty ? "" : " · \(step)") + " …\n")
             stage {
-                $0.name = Stage.localizedName(name, t)
+                $0.name = name
                 $0.state = .running
                 $0.started = Date()
                 $0.detail = step
@@ -454,8 +624,9 @@ func hop(_ body: @escaping @MainActor () -> Void) {
                 $0.eta = nil
                 $0.isScanningLastShaderFiles = false
             }
-            if name == "Pipeline archive" { startPSOPoll(stageID: k, step: step) }
+            if Self.isPSOStage(name) { startPSOPoll(stageID: k, step: step) }
             else if psoStageID == k { stopPSOPoll() }
+            refreshOverallProgress(parsedTotal: n)
         case "step":
             let step = e["step"] as? String ?? ""
             append("    · \(step)\n")
@@ -467,6 +638,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
             }
             if step.hasPrefix("pipeline archive") { startPSOPoll(stageID: k, step: step) }
             else if psoStageID == k { stopPSOPoll() }
+            refreshOverallProgress(parsedTotal: nil)
         case "progress":
             let fraction = (e["frac"] as? NSNumber)?.doubleValue
             let done = (e["done"] as? NSNumber)?.intValue
@@ -485,6 +657,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
                 $0.etaAt = eta == nil ? nil : Date()
                 $0.isScanningLastShaderFiles = BuildProgress.isScanningLastShaderFiles(e)
             }
+            refreshOverallProgress(parsedTotal: nil)
         case "stage_end":
             if psoStageID == k { stopPSOPoll() }
             let ok = e["ok"] as? Bool ?? true, summary = e["summary"] as? String ?? ""
@@ -497,6 +670,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
                 $0.eta = nil
                 $0.isScanningLastShaderFiles = false
             }
+            refreshOverallProgress(parsedTotal: nil)
         case "say":
             let msg = e["msg"] as? String ?? ""
             append(msg + "\n")

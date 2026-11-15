@@ -30,7 +30,7 @@ extension BuildStore {
     /// The shell folder the cache row shows: the frameworks' mirror, shell.json and the banner cache live here.
     package var shellCachePath: String { ShellLibrary.previewRoot(defaults: defaults, parent: shellRootParent, home: home) }
     /// The folder a first shell root would sit in: the output folder, else the game's folder.
-    package var shellRootParent: String { outDir.isEmpty ? inputFolder : outDir }
+    package var shellRootParent: String { effectiveOutputFolder }
     /// The shell folder of the install: the saved one, else next to the output folder (or the game's folder).
     package var shellRoot: String { ShellLibrary.resolveRoot(defaults: defaults, parent: shellRootParent, home: home) }
 
@@ -67,6 +67,7 @@ extension BuildStore {
         // Plan again: a build may have written to the cache since the confirmation was shown
         let plan = ShellRootMove.plan(from: shellCachePath, to: shown.destination)
         guard plan.problem == nil else { shellMove = .confirm(plan); return nil }
+        buildingGame = false; runningTarget = BuildTarget.ios
         running = true
         shellMoveStop.set(false)
         shellMove = .moving(phase: .copying, done: 0, total: plan.bytes)

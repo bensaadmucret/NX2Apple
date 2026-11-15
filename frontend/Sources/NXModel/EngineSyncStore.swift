@@ -26,12 +26,18 @@ import NXCore
     @Published package var selection: EngineSelection
     /// A seed, a check or an install runs (the buttons of Settings disable).
     @Published package private(set) var busy = false
+    /// Live archive download fraction (0...1 when Content-Length is known) and MB summary while fetching an engine archive.
+    @Published package private(set) var downloadFraction: Double?
+    @Published package private(set) var downloadStatus = ""
     /// The line under the tools section of Settings.
     @Published package var status = ""
     /// A newer engine the launch check found while automatic updates are off: Settings offers it.
     @Published package private(set) var available: EngineUpdate.Engine?
     /// The channel the player picked and is asked to confirm (the switch can change the shader chain).
     @Published package var confirmingChannel: EngineChannel?
+    /// Whether Experimental is built on newer upstream code than Stable, as of the last check (LNPANDY/NX2Apple#1095). Settings hides the
+    /// switch to Experimental while it is not ahead, and offers the way back when the launcher is on it.
+    @Published package private(set) var experimentalStanding: ExperimentalStanding = .unknown
     /// An installed engine that waits for the running build to end before the build tools switch to it.
     package var pendingEngine: (engine: EngineUpdate.Engine, channel: EngineChannel)?
     /// The engine tree inside the app bundle. nil for a launcher built from the repository, which keeps its checkout and git.
@@ -196,7 +202,8 @@ import NXCore
 
     /// The channel picker: a different channel is confirmed first, because the switch can change the shader chain.
     package func requestChannel(_ channel: EngineChannel) {
-        guard selection.channel.switchWarningKey(to: channel) != nil, !busy, !buildRunning() else { return }
+        guard selection.channel.switchWarningKey(to: channel) != nil, !busy, !buildRunning(),
+              EngineChannelChoice.allowsSwitch(to: channel, from: selection.channel, standing: experimentalStanding) else { return }
         confirmingChannel = channel
     }
 
@@ -218,15 +225,44 @@ import NXCore
             return Task {}
         }
         busy = true
+        downloadFraction = nil
+        downloadStatus = ""
         if !quiet { status = t(channel == selection.channel ? "engine.checking" : "engine.switching") }
-        let store = engineStore, bundled = bundle, current = selection.engineID, transport = self.transport, version = appVersion
+        let store = engineStore
+        let bundled = bundle
+        let current = selection.engineID
+        let transport = self.transport
+        let version = appVersion
+        let onByteProgress: @Sendable (Int64, Int64?) -> Void = { [weak self] written, expected in
+            let formatted = EngineUpdate.formatDownloadProgress(written: written, expected: expected)
+            Task { @MainActor [weak self] in
+                guard let self, self.busy else { return }
+                self.downloadFraction = formatted.fraction
+                self.downloadStatus = formatted.text
+                if !quiet {
+                    self.status = String(format: self.t("engine.downloadingProgress"), formatted.text)
+                }
+            }
+        }
         return Task {
             let outcome = await Task.detached {
-                EngineUpdate.run(channel: channel, appVersion: version, current: current, store: store,
-                                 bundled: bundled, install: install, transport: transport)
+                EngineUpdate.run(
+                    channel: channel,
+                    appVersion: version,
+                    current: current,
+                    store: store,
+                    bundled: bundled,
+                    install: install,
+                    transport: transport,
+                    onProgress: onByteProgress
+                )
             }.value
+            downloadFraction = nil
+            downloadStatus = ""
             busy = false
             applyOutcome(outcome, channel: channel, quiet: quiet)
+            if case .failed = outcome { return }
+            experimentalStanding = await Task.detached { EngineUpdate.standing(appVersion: version, transport: transport) }.value
         }
     }
 
@@ -280,6 +316,19 @@ import NXCore
         guard !buildRunning(), let pending = pendingEngine else { return }
         pendingEngine = nil
         switchEngine(to: pending.engine, channel: pending.channel)
+    }
+
+    /// What the channel row of Settings lists and says.
+    package var channelChoice: EngineChannelChoice { EngineChannelChoice(selected: selection.channel, standing: experimentalStanding) }
+
+    /// Test seam and app wiring: the standing a check found.
+    package func setStanding(_ standing: ExperimentalStanding) { experimentalStanding = standing }
+
+    /// Test seam for verifying live archive download progress rendering in onboarding and settings views.
+    package func setDownloadProgress(busy: Bool, fraction: Double?, status: String) {
+        self.busy = busy
+        self.downloadFraction = fraction
+        self.downloadStatus = status
     }
 
     /// What Settings shows for the engine: its version and the pin it was built from.

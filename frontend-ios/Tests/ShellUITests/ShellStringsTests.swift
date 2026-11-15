@@ -19,10 +19,14 @@ import Testing
         "Handheld": ["de"],
         "Interface": ["fr"],
         "Layout": ["sv"],
+        "Portrait": ["fr"],
         "Upscaling": ["it"],
         "Minus": ["de", "sv"], "Plus": ["de", "sv", "fr"],            // the Switch's buttons
         "Version %@": ["de", "sv", "fr"],
+        "Version": ["de", "sv", "fr"],
         "OK": ["de", "sv", "fr", "it", "ja"],
+        "Switch 2": ["de", "sv", "fr", "it", "ja"],                      // the console's name
+        "NX2Apple": ["de", "sv", "fr", "it", "ja"],                      // the app's name
     ]
 
     private func table(_ name: String, in folder: String) throws -> [String: Any] {
@@ -90,7 +94,8 @@ import Testing
 
     @Test func aNoteWithAPercentSignIsLookedUpAsItIs() throws {
         let zh = try languageBundle("zh-Hans")
-        let note = "Adjusts resolution between 70% and 100% under load. Turn off to keep full resolution for the selected console mode."
+        // No note of the engine has a literal percent sign now (the dynamic resolution note lost its "70% and 100%"), so a catalog text with a format specifier stands for it
+        let note = "Version %@"
         #expect(ShellStrings.setting(note, bundle: zh) != note)
     }
 
@@ -132,14 +137,18 @@ import Testing
     /// The layout editor showed an English Done in a German screen: `ios.ui.done` was only in en and zh. Every text the editor asks for
     /// (read from its source, an interpolation as %@) has all seven languages now, so a new text without them fails here.
     @Test func everyTextOfTheLayoutEditorHasEveryLanguage() throws {
-        let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().appendingPathComponent("Sources/ShellUI/TouchLayoutEditorView.swift"), encoding: .utf8)
+        let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Sources/ShellUI")
+        let source = try ["TouchLayoutEditorView.swift"].map {
+            try String(contentsOf: directory.appendingPathComponent($0), encoding: .utf8)
+        }.joined(separator: "\n")
         let literal = try Regex(#"ShellStrings\.text\("((?:[^"\\]|\\\([^)]*\))*)"\)"#)
         let interpolation = try Regex(#"\\\([^)]*\)"#)
-        var keys = Set(source.matches(of: literal).compactMap { $0.output[1].substring.map(String.init) }.map { $0.replacing(interpolation, with: "%@") })
+        let sourceKeys = Set(source.matches(of: literal).compactMap { $0.output[1].substring.map(String.init) }.map { $0.replacing(interpolation, with: "%@") })
+        #expect(sourceKeys.contains("Save") && sourceKeys.contains("Exit"), "editor strings were not found in the source")
+        var keys = sourceKeys
         // Passed on as LocalizationValue: the arrows' names and the two resets.
         keys.formUnion(["Move up", "Move down", "Move left", "Move right", "Reset this control", "Reset all controls", "Moved", "In its place"])
-        #expect(keys.contains("Done") && keys.contains("Put every control of the %@ layout back in its built-in place?"), "\(keys.sorted())")
         let strings = try table("Localizable", in: "ShellUI")
         for key in keys.sorted() {
             let localizations = ((strings[key] as? [String: Any])?["localizations"] as? [String: Any]) ?? [:]
