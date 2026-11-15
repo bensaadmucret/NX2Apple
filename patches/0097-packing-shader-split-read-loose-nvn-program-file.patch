@@ -1,0 +1,158 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: seedds <seedds@gmail.com>
+Date: Sat, 14 Nov 2026 13:55:13 +0100
+Subject: [PATCH] packing/shader_split: read loose .nvn program files
+ (Vengeance Hunters)
+
+Vengeance Hunters keeps its eight shaders as loose *_vs.nvn / *_fs.nvn
+files in the RomFS, each one NVN program behind a 16-byte header
+{control length, control offset, code length, code offset}. The file
+has no magic, so the generic prefilter dropped it before scan_blob
+could look inside, and the split stopped with 'found no shaders in
+main or the RomFS'.
+
+scan_file_in now tries nvn_loose on every file it loads: the header's
+two {length, offset} pairs must stay in the file and name a control
+section and a code area of the right magic, the stage from the SPH as
+usual. The programs are single-stage; '#NVN@' keys pair through the
+pixel-input cover like the other single-stage sources.
+
+Checked: build_ipa_from_nsp.py on Vengeance Hunters splits its 8
+shaders (1 vertex, 7 pixel) and the packed Mac app reaches its frame
+loop at 60 fps with no red line; test_split_nvn covers each stage,
+non-minimal offsets and the four rejection shapes.
+
+Found on Vengeance Hunters (01008EF020C98000), no profile yet.
+
+Upstream-Status: forwarded seedds/nxnative#2669
+Reason: Vengeance Hunters' eight shaders are loose .nvn program files (16-byte header + control section + code area) that no reader knew; the split found no shaders and the build stopped
+Issue: LNPANDY/NX2Apple#1309
+
+---
+ dm/gfx/tools/shader_split.py     | 14 +++++++-
+ dm/tools/tests/test_split_nvn.py | 57 ++++++++++++++++++++++++++++++++
+ docs/reference/shaders.md        |  8 +++++
+ 3 files changed, 78 insertions(+), 1 deletion(-)
+ create mode 100644 dm/tools/tests/test_split_nvn.py
+
+diff --git a/dm/gfx/tools/shader_split.py b/dm/gfx/tools/shader_split.py
+index 4a5477a..21bd03a 100644
+--- a/dm/gfx/tools/shader_split.py
++++ b/dm/gfx/tools/shader_split.py
+@@ -1896,6 +1896,17 @@ def sumo_shaders(d, label):
+         out.append(sumo_program(d, h, size, co, ko, cn, kn, f'{label}#NVNSH@{h:#x}', STAGES[stage]))
+     return out
+ 
++def nvn_loose(d, label):
++    """A loose .nvn program file (Vengeance Hunters' RomFS files: textured_colored_vs.nvn and the *_fs.nvn beside it): a 16-byte header {control length, control offset, code length, code offset} names the control section and the code area that follow it."""
++    if len(d) < 0x14: return []
++    cn, co, kn, ko = struct.unpack_from('<4I', d)
++    if not (0x10 <= co <= len(d) - 4 and co + cn <= len(d) and 0x10 <= ko <= len(d) - 4 and ko + kn <= len(d)): return []
++    ctl, code = d[co:co + cn], d[ko:ko + kn]
++    if ctl[:4] != CTL_MAGIC or code[:4] not in (GFX_MAGIC, CS_MAGIC): return []
++    st = 'cs' if code[:4] == CS_MAGIC else sph_stage(code)
++    if st is None or check(label, st, ctl, code): return []
++    return [(f'{label}#NVN@{0:#x}', st, ctl, code)]
++
+ def phyre_shaders(d, label):
+     """Phyre's NVN code immediately precedes its control section, unaligned in RYHP effects; loose blobs also prefix their two lengths (FFX/X-2)."""
+     out = []
+@@ -2787,7 +2798,7 @@ def pixel_input_cover(shaders):
+         k = min(ins, key=lambda k: (-len(ins[k] & left), k)); cover.append(k); left -= ins[k]
+     return cover
+ 
+-SINGLE_STAGE = ('#GLSLC@', '#VIPER', '#UE', '#MTSPK@', '#MGFX@', '#NLG', '#PGSO', '#RAW@', '#TFXO@', '#NEEDLE@', '#SNOWDROP@', '#PHYRE@', '#SUMO@', '#NVNSH@')   # sources whose every shader is a program of one stage: GLSLC outputs, Unreal's shader records, MT Framework's shader package (BNSH variations, Unity programs, MSHD and SDF pair theirs);
++SINGLE_STAGE = ('#GLSLC@', '#VIPER', '#UE', '#MTSPK@', '#MGFX@', '#NLG', '#PGSO', '#RAW@', '#TFXO@', '#NEEDLE@', '#SNOWDROP@', '#PHYRE@', '#SUMO@', '#NVNSH@', '#NVN@')   # sources whose every shader is a program of one stage: GLSLC outputs, Unreal's shader records, MT Framework's shader package (BNSH variations, Unity programs, MSHD and SDF pair theirs);
+ # Unreal Engine 3's shader caches (ue3_shaders, '#UE3@'); MonoGame's effects, whose passes may name no vertex shader and keep the one bound (Celeste: 10 of its 13 effects draw through SpriteBatch's vertex shader, which is in main); Next Level Games'
+ # archives (Luigi's Mansion 3 makes 5,317 programs of one stage each at boot); PlatinumGames' shader objects (Bayonetta 3: one stage each, pg_shader); control sections loose in main
+ # (Advance Wars 1+2: Re-Boot Camp's Bink shaders, raw_shaders), which no file pairs; YEBIS's effect file (tfxo_shaders); and Sumo's Ninty_NX descriptors and NVNsh records, one stage
+@@ -3057,6 +3068,7 @@ def scan_file_in(args):
+         try: pairs = unity_shaders(d, '/' + rel, found, trees if not TREES else dict(TREES))
+         except unityfs.NoTree: return rel, {}, set(), 'defer'
+         return rel, uniq_keys(found), var_pairs(found) | {(a, b, 'prog') for a, b in pairs}, trees
++    elif loose := nvn_loose(d, '/' + rel): found += loose
+     elif b'BNSH\0\0\0\0' not in d and b'BAHS' not in d and d[:4] != b'MSHD' and d[:4] != b'NDSR' and d[:4] != b'NARC' and d[:4] != b'NDVE' and not (d[:4] == b'SARC' and b'Yaz0' in d) and b'\x91\x68\x86\x19' not in d and MGFX not in d and NEEDLE not in d and d[:8] != SUMO_MUX and SUMO_NX not in d and NVNSH not in d: return rel, {}, set(), {}   # a SARC may hold Yaz0 members, a NARC packed ones (cra.undo)
+     else:
+         scan_blob(d, '/' + rel, found)
+diff --git a/dm/tools/tests/test_split_nvn.py b/dm/tools/tests/test_split_nvn.py
+new file mode 100644
+index 0000000..eddcbfe
+--- /dev/null
++++ b/dm/tools/tests/test_split_nvn.py
+@@ -0,0 +1,57 @@
++"""Vengeance Hunters' loose .nvn files: one NVN program each, a 16-byte header {control length, control offset, code length, code offset} naming the
++control section and the code area that follow it. Synthetic bytes only."""
++import contextlib
++import io
++import struct
++import tempfile
++import unittest
++from pathlib import Path
++
++from dm.tools.tests.test_split_gzip import ss
++import dm.tools.fuzz.fuzz_shader_split as fz
++
++
++def nvn_file(ctl, code, co=0x10, pad=0):
++    """A .nvn file holding one program: the four-word header, the control section at its offset, the code area right after it"""
++    ko = co + len(ctl) + pad
++    return struct.pack('<4I', len(ctl), co, len(code), ko) + bytes(co - 0x10) + ctl + bytes(pad) + code
++
++
++class LooseNvn(unittest.TestCase):
++    def scan(self, data, rel='textured_colored_vs.nvn'):
++        with tempfile.TemporaryDirectory() as t, contextlib.redirect_stdout(io.StringIO()) as log:
++            path = Path(t) / rel; path.write_bytes(data)
++            result = ss.scan_file((str(path), rel))
++        return result, log.getvalue()
++
++    def test_vs_and_fs(self):
++        for st, (ctl, code) in (('vs', fz.VS), ('ps', fz.PS)):
++            with self.subTest(stage=st):
++                (rel, keys, pairs, extra), log = self.scan(nvn_file(ctl, code))
++                self.assertEqual(log, '')
++                self.assertEqual({v[1] for v in keys.values()}, {st})
++                self.assertEqual(len(keys), 1); self.assertEqual(pairs, set()); self.assertEqual(extra, {})
++
++    def test_offsets_need_not_be_minimal(self):
++        ctl, code = fz.VS
++        (rel, keys, pairs, extra), log = self.scan(nvn_file(ctl, code, co=0x40, pad=0x30))
++        self.assertEqual(log, ''); self.assertEqual(len(keys), 1)
++
++    def test_rejects(self):
++        ctl, code = fz.VS
++        good = nvn_file(ctl, code)
++        # no control magic at the control offset
++        bad = bytearray(good); bad[0x10:0x14] = b'NONE'
++        # no code magic at the code offset
++        bad2 = bytearray(good); bad2[0x890:0x894] = b'NONE'
++        # a code offset past the file
++        bad3 = bytearray(good); struct.pack_into('<I', bad3, 0xc, len(good) + 0x10)
++        # not even the header
++        for i, data in enumerate((bytes(bad), bytes(bad2), bytes(bad3), b'\x88\x08\0\0')):
++            with self.subTest(case=i):
++                (rel, keys, pairs, extra), log = self.scan(data)
++                self.assertEqual(keys, {}); self.assertEqual(pairs, set())
++
++
++if __name__ == '__main__':
++    unittest.main()
+diff --git a/docs/reference/shaders.md b/docs/reference/shaders.md
+index 5f2aae9..4ed185f 100644
+--- a/docs/reference/shaders.md
++++ b/docs/reference/shaders.md
+@@ -35,6 +35,14 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
+ - **Found on:** [FINAL FANTASY X/X-2 HD Remaster](../../dm/games/0100BC300CB48000/README.md); base and both supplied DLC packs yield 5,752 unique shaders.
+ - **Check:** `test_vbf.py` covers raw and zlib blocks, shared/missing members, truncation, unaligned effects, loose shader keys and inconsistent lengths. All 5,752 programs translate on the Mac.
+ 
++### Loose `.nvn` program files
++
++- **Symptom:** the shader split finds no shaders (`[RED] the shader split found no shaders in main or the RomFS`) though the RomFS holds `*_vs.nvn` and `*_fs.nvn` files a few KB each.
++- **Cause:** a `.nvn` file here is one compiled NVN program behind a 16-byte header {control length, control offset, code length, code offset}: the control section at its offset, the code area at its own. No magic marks the file, and the generic prefilter drops it before `scan_blob` ever sees the control section inside.
++- **Fix:** `scan_file_in` tries `nvn_loose` on every file it loads: the header's two {length, offset} pairs must stay in the file, the control offset must point at a control section, the code offset at a code area whose magic fits its stage, and `check` still verifies the control's own code length. The files are single-stage programs; `'#NVN@'` keys pair through the pixel-input cover like the other single-stage sources.
++- **Found on:** Vengeance Hunters (`01008EF020C98000`, no profile): eight RomFS `.nvn` files, one vertex and seven pixel shaders (the game's textured, coloured and CRT-filter programs), every program the game asked for up to its title among them.
++- **Check:** `dm/tools/tests/test_split_nvn.py`: a synthetic `.nvn` per stage, non-minimal offsets, and the four rejection cases (control or code magic absent, offset out of the file, short file).
++
+ ### A file no reader reads
+ 
+ - **Symptom:** the shader split stops on one archive with a Python traceback (an `IndexError` or `struct.error` naming no file), or a reader's `[RED]` line about a format it does not know, and nothing is written; the NSP script loses the build at the split.

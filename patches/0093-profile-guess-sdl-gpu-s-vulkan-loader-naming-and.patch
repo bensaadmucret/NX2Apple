@@ -1,0 +1,159 @@
+From a72669fc0c62db8c5649ce626b91525bd9ef7340 Mon Sep 17 00:00:00 2001
+From: Devin <158243242+devin-ai-integration[bot]@users.noreply.github.com>
+Date: Fri, 13 Nov 2026 20:40:03 +0100
+Subject: [PATCH] profile_guess: SDL_GPU's vkCmd* names and empty #version
+ strings (MARVEL Cosmic Invasion)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Two misreads of an SDL_GPU main's files:
+
+- graphics: a main that imports only vkGetInstanceProcAddr (SDL's Vulkan loader, which an SDL game links for WSI and may never use
+  to draw — Balatro renders with OpenGL, Absolum with NVN) was read as OpenGL when it also imports EGL and names glShaderSource —
+  SDL's unused GL backend. vkGetDeviceProcAddr does not tell the renderer either: the WSI path names it to load the swapchain
+  procs. A vkCmd* name can only come from a table a renderer resolves command-recording procs through: MARVEL Cosmic Invasion
+  names 30 of them. vk_names counts them in main's strings; the loader import plus any of those is vulkan.
+
+- gl_src: MARVEL's main holds four bare '#version' headers (MojoShader prefixes the GLSL it regenerates at run time) which
+  counted as embedded GLSL sources, so the build translated four empty shaders and failed in metallib. A '#version' string now
+  counts only with a body behind it (>64 bytes to its NUL).
+
+Checked: shader_sources on MARVEL Cosmic Invasion's extraction gives graphics=vulkan + vk_capture; its four captured SPIR-V
+modules translate and the game draws at 60 FPS. SdlVulkan in test_profile_guess covers the loader-only shapes (Balatro gl,
+Absolum nvn, own nvnBootstrapLoader beating the SDL signal).
+
+Upstream-Status: forwarded seedds/nxnative#943
+Reason: A main importing only vkGetInstanceProcAddr (SDL's loader) was read as OpenGL when it also imports EGL and names glShaderSource; naming vkGetDeviceProcAddr means it renders with Vulkan (SDL_GPU). Bare '#version' strings with no body no longer count as embedded GLSL (MARVEL Cosmic Invasion)
+Issue: LNPANDY/NX2Apple#1271
+
+---
+ dm/games/profile_guess.py            | 21 ++++++++++++-------
+ dm/tools/tests/test_profile_guess.py | 30 ++++++++++++++++++++++++++++
+ scripts/build_ipa_from_nsp.py        |  2 +-
+ 3 files changed, 45 insertions(+), 8 deletions(-)
+
+diff --git a/dm/games/profile_guess.py b/dm/games/profile_guess.py
+index f544492..c763e9c 100644
+--- a/dm/games/profile_guess.py
++++ b/dm/games/profile_guess.py
+@@ -105,8 +105,8 @@ def facts_of(exefs, romfs):
+             if pat in img: F['markers'].setdefault(name, []).append(p.name)
+         if p.name == 'main':
+             F['unity'] = {v.decode() for v in re.findall(rb'20[12][0-9]\.[0-9]+\.[0-9]+f[0-9]', img)}
+-            F['glslc'], F['glsl_src'], F['gl_names'] = img.count(GLSLC_MAGIC), glsl_sources(img), img.count(b'glShaderSource')
+-            F['gl_src'] = len(re.findall(GL_SRC, img))
++            F['glslc'], F['glsl_src'], F['gl_names'], F['vk_names'] = img.count(GLSLC_MAGIC), glsl_sources(img), img.count(b'glShaderSource'), img.count(b'vkCmd')
++            F['gl_src'] = sum(1 for m in re.finditer(GL_SRC, img) if (e := img.find(b'\0', m.end())) != -1 and e - m.end() > 64)
+             F['main_markers'] = {name for pat, name in MARKERS if pat in img}
+         m['kind'] = {'main': 'the game', 'sdk': 'nnSdk', 'rtld': 'rtld'}.get(p.name) or kind(m)
+     F['sysres'], F['program'] = npdm(exefs / 'main.npdm')
+@@ -242,7 +242,7 @@ def modules_supplying(exefs, want, modules, hooks=None):   # the modules left ou
+ 
+ 
+ # ---- Shader sources: decided from the game files at every build, not kept in the profile (scripts/build_ipa_from_nsp.py; shader_split.py reads what those steps write) ----
+-def shader_sources(imports, glsl_src, glslc_mods, spirv, unreal_paks, trinity_packs=0, legacy_paks=0, gl_names=0, gl_src=0, gl_files=0, oodle_pkz=0, nro_imports=frozenset(), oodle_gfpak=0, oodle_ue3=0, frostbite=False, romfs_glsl=0):
++def shader_sources(imports, glsl_src, glslc_mods, spirv, unreal_paks, trinity_packs=0, legacy_paks=0, gl_names=0, gl_src=0, gl_files=0, oodle_pkz=0, nro_imports=frozenset(), oodle_gfpak=0, oodle_ue3=0, frostbite=False, romfs_glsl=0, vk_names=0):
+     """{name: (value, reason)}: graphics (vulkan when main imports Vulkan functions and not nvnBootstrapLoader; gl when it imports eglCreateWindowSurface and names glShaderSource, so it compiles
+     GLSL through OpenGL (gl_names: how often main has that name; Absolum imports the same EGL functions for SDL3 but renders with NVN and names no GL function); else nvn; vkGetInstanceProcAddr
+     alone is SDL's Vulkan loader, which Balatro's LÖVE links and never uses), vk_capture (a Vulkan game without SPIR-V files generates its shaders at run time), gl_capture (an OpenGL game with no
+@@ -257,7 +257,13 @@ def shader_sources(imports, glsl_src, glslc_mods, spirv, unreal_paks, trinity_pa
+     extracted; Hades and both Galaxies import 99 or 100 Vulkan functions, Balatro only vkGetInstanceProcAddr), Balatro alone composing its GLSL.
+     nro_imports: what the NROs the game loads at run time import. Portal's main is SDL with its EGL backend (it names glShaderSource for SDL's GL renderer) and renders nothing: its Source engine
+     NROs draw with NVN (materialsystem.nro and video_nx.nro import nvnBootstrapLoader) and call glslcCompile; the GLSLC outputs it ships (nxcontent/nvsb in game.zip) are read by the split"""
+-    vk = sum(1 for s in imports if re.match(r'vk[A-Z]', s) and s != 'vkGetInstanceProcAddr'); vulkan = bool(vk) and 'nvnBootstrapLoader' not in imports
++    vk = sum(1 for s in imports if re.match(r'vk[A-Z]', s) and s != 'vkGetInstanceProcAddr')
++    # vkGetInstanceProcAddr alone is SDL's Vulkan loader, which an SDL game links for WSI and may never use to draw (Balatro renders
++    # with OpenGL, Absolum with NVN); the WSI path itself names vkGetDeviceProcAddr to load the swapchain procs, so that name does not
++    # tell the renderer either. A vkCmd* name can only come from a table a renderer resolves command-recording procs through — SDL_GPU
++    # names 30 of them (MARVEL Cosmic Invasion, which EGL's own glShaderSource string misclassifies as OpenGL)
++    sdl_vk = not vk and vk_names and 'vkGetInstanceProcAddr' in imports
++    vulkan = (bool(vk) or sdl_vk) and 'nvnBootstrapLoader' not in imports
+     nro_nvn = 'nvnBootstrapLoader' in nro_imports
+     # A main that imports nvnBootstrapLoader and compiles its own GLSL with GLSLC draws with NVN even when it also imports EGL and names glShaderSource: Rayman 30th Anniversary
+     # Edition (Digital Eclipse, SDK 20) links both paths, never calls EGL on the Mac, and compiles the GLSL in its .shader files with subsdk2's glslcCompile; taken for OpenGL, it
+@@ -265,7 +271,8 @@ def shader_sources(imports, glsl_src, glslc_mods, spirv, unreal_paks, trinity_pa
+     own_glslc = 'nvnBootstrapLoader' in imports and 'glslcCompile' in imports and bool(glsl_src) and bool(glslc_mods)
+     gl = not vulkan and not nro_nvn and 'eglCreateWindowSurface' in imports and bool(gl_names) and not own_glslc
+     nro_glslc = not vulkan and not gl and 'glslcCompile' in nro_imports and bool(glslc_mods)
+-    return {'graphics': ('vulkan', f'main imports {vk} Vulkan functions and not nvnBootstrapLoader: the host\'s Vulkan layer (dm/gfx/vk/hle_vk.m)') if vulkan else
++    return {'graphics': ('vulkan', f'main imports only the Vulkan loader and names {vk_names} vkCmd* device procs: it renders with Vulkan through SDL_GPU (MARVEL Cosmic Invasion), the host\'s Vulkan layer (dm/gfx/vk/hle_vk.m)' if sdl_vk and vulkan else
++                                f'main imports {vk} Vulkan functions and not nvnBootstrapLoader: the host\'s Vulkan layer (dm/gfx/vk/hle_vk.m)') if vulkan else
+                         ('gl', 'main imports EGL and names glShaderSource: it renders with OpenGL and compiles GLSL, the host\'s GL layer (dm/gfx/gl/hle_gl.m)') if gl else
+                         ('nvn', 'the NROs the game loads import nvnBootstrapLoader' if nro_nvn and 'nvnBootstrapLoader' not in imports else
+                                 'main imports nvnBootstrapLoader and compiles its GLSL with GLSLC; its EGL and glShaderSource are left unused (Rayman 30th Anniversary Edition)' if own_glslc and 'eglCreateWindowSurface' in imports and gl_names else
+@@ -312,7 +319,7 @@ def romfs_glsl_files(romfs):
+ def build_sources(exefs, romfs, modules):
+     """shader_sources from an extraction (its ExeFS and RomFS folders) and the modules the profile loads"""
+     exefs = Path(exefs); main = nso(exefs / 'main')[0]
+-    imports = {s for s, defined, _ in nso_syms.dynsyms(main) if not defined}; glsl_src = glsl_sources(main); gl_names = main.count(b'glShaderSource'); gl_src = len(re.findall(GL_SRC, main))
++    imports = {s for s, defined, _ in nso_syms.dynsyms(main) if not defined}; glsl_src = glsl_sources(main); gl_names = main.count(b'glShaderSource'); gl_src = sum(1 for m in re.finditer(GL_SRC, main) if (e := main.find(b'\0', m.end())) != -1 and e - m.end() > 64); vk_names = main.count(b'vkCmd')
+     nro_imp = romfs_nro_imports(romfs)
+     defines = lambda m: (exefs / m).exists() and any(s == 'glslcCompile' and defined for s, defined, _ in nso_syms.dynsyms(nso(exefs / m)[0]))
+     # GLSL source files in the RomFS that the game compiles itself with GLSLC (Turrican Anthology Vol. I: shaders/*.vert / *.frag, no GLSL string in main)
+@@ -358,7 +365,7 @@ def build_sources(exefs, romfs, modules):
+                 oodle_ue3 += h[i + 16 + 8 * nb:i + 17 + 8 * nb] == b'\x8c'
+     import frostbite   # Frostbite's superbundles (EA SPORTS FC 27): every item of the cas files is Oodle Leviathan, decoded with the game's own decoder
+     return shader_sources(imports, glsl_src, glslc_mods, spirv, len(uepak.unreal_paks(str(romfs), inline=False)), trinity, len(uepak.unreal_paks(str(romfs), inline=True)), gl_names, gl_src, gl_files, oodle_pkz, nro_imp,
+-                          oodle_gfpak=oodle_gfpak, oodle_ue3=oodle_ue3, frostbite=frostbite.is_frostbite(str(romfs)), romfs_glsl=romfs_glsl)
++                          oodle_gfpak=oodle_gfpak, oodle_ue3=oodle_ue3, frostbite=frostbite.is_frostbite(str(romfs)), romfs_glsl=romfs_glsl, vk_names=vk_names)
+ 
+ 
+ def va_heap(sysres, imports):   # virtual address memory (an NPDM system resource) and a heap: the alias / heap split is a starting point the heap check corrects (Wonder, Tears of the Kingdom; Engage's pool is its own measurement)
+diff --git a/dm/tools/tests/test_profile_guess.py b/dm/tools/tests/test_profile_guess.py
+index df1801c..4f37ed5 100644
+--- a/dm/tools/tests/test_profile_guess.py
++++ b/dm/tools/tests/test_profile_guess.py
+@@ -99,6 +99,36 @@ class GlslSources(unittest.TestCase):
+             self.assertEqual(pg.romfs_glsl_files(root), 2)
+ 
+ 
++class SdlVulkan(unittest.TestCase):
++    """MARVEL Cosmic Invasion (FNA/SDL_GPU): imports only SDL's Vulkan loader and EGL, names glShaderSource and 30 vkCmd* procs."""
++
++    SDL_IMPORTS = {'vkGetInstanceProcAddr', 'eglCreateWindowSurface', 'eglGetProcAddress', 'SDL_malloc'}
++
++    def sources(self, **kw):
++        return pg.shader_sources(set(self.SDL_IMPORTS) | kw.pop('imports', set()), 0, [], 0, 0, **kw)
++
++    def test_loader_alone_with_gl_names_is_opengl(self):   # Balatro's shape: the loader linked for WSI, never used
++        self.assertEqual(self.sources(gl_names=1, gl_src=2)['graphics'][0], 'gl')
++
++    def test_naming_command_procs_is_vulkan(self):   # vkCmd* names in main's strings: SDL_GPU resolves command-recording procs
++        self.assertEqual(self.sources(gl_names=1, vk_names=1)['graphics'][0], 'vulkan')
++
++    def test_sdl_vulkan_without_spirv_captures_at_run_time(self):
++        self.assertTrue(self.sources(vk_names=1)['vk_capture'][0])
++
++    def test_loader_only_and_no_gl_name_is_nvn(self):   # Absolum's shape: same imports, NVN through FNA3D
++        self.assertEqual(self.sources(vk_names=0)['graphics'][0], 'nvn')
++
++    def test_own_nvn_beats_the_sdl_vulkan_signal(self):
++        self.assertEqual(self.sources(imports={'nvnBootstrapLoader'}, vk_names=1)['graphics'][0], 'nvn')
++
++    def test_a_bare_version_header_is_not_embedded_glsl(self):   # MARVEL's main holds four '#version' prefixes with no body
++        import re
++        img = b'\0#version 3\0' + b'\0' * 128 + b'\0#version 450\n' + b'x' * 100 + b'\0'
++        n = sum(1 for m in re.finditer(pg.GL_SRC, img) if (e := img.find(b'\0', m.end())) != -1 and e - m.end() > 64)
++        self.assertEqual(n, 1)
++
++
+ class Npdm(unittest.TestCase):
+     def npdm(self, flags):
+         d = bytearray(0x80); d[:4] = b'META'; d[0xc] = flags
+diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
+index 71dc95d..631cfa6 100755
+--- a/scripts/build_ipa_from_nsp.py
++++ b/scripts/build_ipa_from_nsp.py
+@@ -1044,7 +1044,7 @@ def survey(nsp_dir, app, fam, keys, repo, py, env):
+     nros = {p.name: p for p in sorted((ex / 'romfs_nro').rglob('*.nro'))}   # the manifest pass writes the NROs (their imports decide the API and the modules: Portal 2's main is SDL with EGL, its Source engine NROs draw with NVN)
+     nro_add = pg.nro_modules(ex / 'ExeFS', nros, keep) if nros else {}
+     S = pg.shader_sources(mods['main']['imports'], F['glsl_src'], [m for m in sorted({*keep, *nro_add}, key=pg.load_order) if 'glslcCompile' in mods[m]['exports']], rom['mags']['SPIR-V'],
+-                          rom['exts'].get('.pak', 0) if F.get('main_markers', set()) & {'Unreal', 'Unreal 4'} else 0, rom['mags']['Trinity pack'], gl_names=F.get('gl_names', 0),
++                          rom['exts'].get('.pak', 0) if F.get('main_markers', set()) & {'Unreal', 'Unreal 4'} else 0, rom['mags']['Trinity pack'], gl_names=F.get('gl_names', 0), vk_names=F.get('vk_names', 0),
+                           gl_src=F.get('gl_src', 0), gl_files=sum(rom['exts'].get(e, 0) for e in pg.GL_FILES), oodle_pkz=rom['mags']['PlatinumGames PKZ'],   # the manifest has no name tables: every PKZ counts
+                           nro_imports=frozenset(pg.romfs_nro_imports(ex / 'romfs_nro')))
+     vulkan, gl = S['graphics'][0] == 'vulkan', S['graphics'][0] == 'gl'
+-- 
+2.54.0 (Apple Git-157)
+
