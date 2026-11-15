@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Devin <158243242+devin-ai-integration[bot]@users.noreply.github.com>
+Date: Fri, 13 Nov 2026 20:37:32 +0100
+Subject: [PATCH] vk_shaders: rename the reflected entry point, not 'main'
+ (MARVEL Cosmic Invasion)
+
+SPIRV-Cross refused a module whose entry point is not named main: 'Entry point does not exist.' SDL_GPU's SPIR-V
+names its entry points ShaderFunction1 / ShaderFunction2, so MARVEL Cosmic Invasion's whole capture failed to
+translate. The reflection already reads the name (eps[0]); --rename-entry-point now takes it and falls back to
+'main' only when the reflection names none.
+
+Checked: MARVEL Cosmic Invasion's four captured modules (2 vertex ShaderFunction1, 2 fragment ShaderFunction2)
+translate to vk_shaders.metallib and draw in a window at 60 FPS.
+
+Upstream-Status: forwarded seedds/nxnative#943
+Reason: vk_shaders.py hardcoded the 'main' entry point; SDL_GPU SPIR-V modules use names like ShaderFunction1/2, so spirv-cross failed with 'Entry point does not exist' — rename the reflected entry point instead (MARVEL Cosmic Invasion)
+Issue: LNPANDY/NX2Apple#1271
+
+---
+ dm/gfx/tools/vk_shaders.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/dm/gfx/tools/vk_shaders.py b/dm/gfx/tools/vk_shaders.py
+index 18f18b9..1a97a92 100644
+--- a/dm/gfx/tools/vk_shaders.py
++++ b/dm/gfx/tools/vk_shaders.py
+@@ -117,7 +117,7 @@ def one(path, tmp, root):
+     if nxt['buffer'] > 16 or nxt['texture'] > 31 or nxt['sampler'] > 16: red(f'{path}: resource slots exceeded {nxt}')
+     spv = os.path.join(tmp, key + '.spv'); msl = os.path.join(tmp, key + '.metal')
+     open(spv, 'wb').write(struct.pack(f'<{len(words)}I', *words))
+-    cmd = [SPIRV_CROSS, spv, '--msl', '--msl-version', '20300', '--msl-decoration-binding', '--rename-entry-point', 'main', f'vk_{key}', stage, '--output', msl]
++    cmd = [SPIRV_CROSS, spv, '--msl', '--msl-version', '20300', '--msl-decoration-binding', '--rename-entry-point', eps[0].get('name', 'main'), f'vk_{key}', stage, '--output', msl]
+     if stage == 'vert': cmd.append('--flip-vert-y')
+     r = subprocess.run(cmd, capture_output=True, text=True)
+     if r.returncode: red(f'{path}: spirv-cross failed: {r.stderr.strip()[:300]}')

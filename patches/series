@@ -55,3 +55,11 @@
 0087-build-ipa-from-nsp-reuse-the-other-platform-s-ro.patch
 0088-nvn-decode-bc-uploads-before-copying-into-unpack.patch
 0089-shader-split-encrypted-legacy-ue-pak.patch
+0090-host-offline-eos-stubs-answer-a-usable-platform.patch
+0091-vk-shaders-rename-the-reflected-entry-point-not.patch
+0092-vk-vkcmdblitimage-and-the-device-procs-sdl-gpu-r.patch
+0093-profile-guess-sdl-gpu-s-vulkan-loader-naming-and.patch
+0095-vk-blend-constants-as-dynamic-command-buffer-sta.patch
+0097-packing-shader-split-read-loose-nvn-program-file.patch
+0098-packing-shader-split-read-redengine-rdhs-and-fzl.patch
+0099-packing-shader-split-an-fzlc-chunk-stored-uncomp.patch

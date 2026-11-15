@@ -1,0 +1,61 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Devin <158243242+devin-ai-integration[bot]@users.noreply.github.com>
+Date: Fri, 13 Nov 2026 20:37:19 +0100
+Subject: [PATCH] host: offline EOS stubs answer a usable platform handle
+ (MARVEL Cosmic Invasion)
+
+A game that links the EOS client into main while its EOS module NRO is refused as an online SDK (hle_ro.c) got a null
+EOS_HPlatform from the generic stub: EOS_Platform_Create returned 0 and never wrote the output handle, and the game
+dereferenced the address at once (main+0x956aac, sig=11). Hades survives the refused module because its EOS calls
+live inside it; MARVEL Cosmic Invasion (FNA, SDL_GPU) imports EOS_Platform_Create directly.
+
+EOS_Platform_Create now answers the options pointer, a mapped non-null guest address the game treats as an opaque
+handle and writes to its out parameter, and the EOS_Platform_Get*Interface stubs answer that handle (regs[0]) instead
+of 0, which took the game past Connect/Auth setup into Vulkan init. The remaining EOS calls return 0 = offline
+success; EOS_Platform_Tick runs in the frame loop.
+
+Checked: dmhost builds and the game boots through EOS_Platform_GetConnectInterface into SDL_GPU's Vulkan init, draws
+and audio at 60 FPS in a window.
+
+Upstream-Status: forwarded seedds/nxnative#943
+Reason: A game importing EOS_Platform_Create directly crashed on a null EOS_HPlatform when its EOS module NRO was refused; the stub now answers a usable opaque platform handle and the EOS_Platform_Get*Interface stubs answer it (MARVEL Cosmic Invasion)
+Issue: LNPANDY/NX2Apple#1271
+
+---
+ dm/host/hle.c      |  4 ++++
+ dm/host/hle_misc.c | 10 ++++++++++
+ 2 files changed, 14 insertions(+)
+
+diff --git a/dm/host/hle.c b/dm/host/hle.c
+index 50bd6e6..17af7e9 100644
+--- a/dm/host/hle.c
++++ b/dm/host/hle.c
+@@ -16,6 +16,10 @@ uint64_t unimpl_c(unsigned idx, uint64_t *regs) {
+         g_stub_seen[idx] = 1;
+         LOG("UNIMPL %s (x0=%#llx x1=%#llx x2=%#llx)", g_stub_name[idx], regs[0], regs[1], regs[2]);
+     }
++    // An EOS_Platform_Get*Interface stub hands the game an opaque handle it stores and dereferences: a null one
++    // crashes (MARVEL Cosmic Invasion, main+0x956afc). Answer the platform handle it was called on, which is a
++    // mapped pointer the game only ever passes back to the other EOS stubs.
++    if (!strncmp(g_stub_name[idx], "EOS_Platform_Get", 16) && strstr(g_stub_name[idx], "Interface")) return regs[0];
+     return 0;
+ }
+ 
+diff --git a/dm/host/hle_misc.c b/dm/host/hle_misc.c
+index f38ca60..5c97ee0 100644
+--- a/dm/host/hle_misc.c
++++ b/dm/host/hle_misc.c
+@@ -320,3 +320,13 @@ HLE_FORCE("_ZN2nn4chat28RequestNextRemoteCameraImageEPNS_2gs16NativeSyncHandleEP
+           Result, h_chat_RemoteNext, void *sync, void *type, int i, void *sync2, const void *id) { (void)sync; (void)type; (void)i; (void)sync2; (void)id; return RES_FAIL; }
+ HLE_FORCE("_ZN2nn4chat46BeginFullScreenWithLocalCameraAvailableSectionEb", "GameChat full-screen section begun: no chat to tell", Result, h_chat_FullBegin, unsigned on) { (void)on; return RES_OK; }
+ HLE_FORCE("_ZN2nn4chat44EndFullScreenWithLocalCameraAvailableSectionEv", "GameChat full-screen section ended", void, h_chat_FullEnd, void) {}
++
++// An FNA game whose EOS module was refused (hle_ro.c's online SDKs) but that links the EOS client into main: the
++// generic stub's 0 return is a null EOS_HPlatform the game dereferences (MARVEL Cosmic Invasion, main+0x956aac).
++// The platform handle is opaque to the game: the options pointer is a mapped, non-null answer, and the game's later
++// EOS calls land on their own stubs, so it plays offline.
++HLE("EOS_Platform_Create", uint64_t, hle_eos_platform_create, uint64_t options, uint64_t a1, uint64_t out) {
++    (void)a1;
++    if (out) { dm_guest_write_prepare((void *)(uintptr_t)out, 8); *(uint64_t *)(uintptr_t)out = options; }
++    return options;
++}
